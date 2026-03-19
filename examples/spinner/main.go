@@ -10,7 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	overlay "github.com/diceguyd30/bubble-overlay"
+	overlay "github.com/madicen/bubble-overlay"
 )
 
 type model struct {
