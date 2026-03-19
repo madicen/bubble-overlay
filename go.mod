@@ -1,8 +1,6 @@
-module github.com/diceguyd30/bubble-overlay
+module github.com/madicen/bubble-overlay
 
 go 1.24.12
-
-replace github.com/diceguyd30/bubble-overlay => ./
 
 require (
 	github.com/charmbracelet/bubbles v1.0.0
