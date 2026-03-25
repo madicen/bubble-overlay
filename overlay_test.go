@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestOverlayView_replacesOnlyModalRect(t *testing.T) {
@@ -46,7 +48,7 @@ func TestOverlayView_replacesOnlyModalRect(t *testing.T) {
 	}
 	// Rows 3-6: main left (cols 0-9) + modal (cols 10-19) + main right (cols 20-29)
 	for row := top; row < top+4; row++ {
-		line := lines[row]
+		line := ansi.Strip(lines[row])
 		leftPart := line[:10]
 		midPart := line[10:20]
 		rightPart := line[20:30]
@@ -91,7 +93,7 @@ func TestOverlayView_modalReplacesRegion(t *testing.T) {
 
 	// Row 1 (first modal row): main has A(0-4), then overlay 5-14, then main B(15-19).
 	// Overlay region: modal "MM  MM    " -> where modal has space, main shows (A or B). So we expect A and B to show through.
-	row1 := lines[1]
+	row1 := ansi.Strip(lines[1])
 	// Left of overlay (cols 0-4): A
 	if !strings.Contains(row1[:5], "A") {
 		t.Errorf("row 1 left: want A from main, got %q", row1[:5])
@@ -102,6 +104,46 @@ func TestOverlayView_modalReplacesRegion(t *testing.T) {
 	}
 	if !strings.Contains(row1[15:], "B") {
 		t.Errorf("row 1 right margin: want B from main, got %q", row1[15:])
+	}
+}
+
+func TestOverlayView_resetsPenBeforeModal(t *testing.T) {
+	main := "\x1b[42m" + strings.Repeat("G", 20) + "\x1b[0m" // green bg
+	modal := "MODALMODAL"
+	out := OverlayView(main, modal, 30, 1, 0, 5)
+	// After 5 G cells, SGR reset + hyperlink reset must precede modal so border is not on green.
+	i := strings.Index(out, "MODAL")
+	if i < 0 {
+		t.Fatal("modal not found")
+	}
+	before := out[:i]
+	if !strings.Contains(before, ansi.ResetStyle) {
+		t.Fatalf("expected SGR reset before modal, prefix ends with: %q", before[len(before)-min(40, len(before)):])
+	}
+}
+
+func TestOverlayView_reappliesStyleHiddenByModal(t *testing.T) {
+	// 15 plain cells, then purple background; opening SGR starts at column 15.
+	// Modal covers columns 10–17, so the SGR bytes live under the modal while
+	// purple "x" cells continue to the right — output must re-inject style after the modal.
+	const plain = "012345678901234"
+	purple := "\x1b[48;5;57m" + strings.Repeat("x", 36) + "\x1b[0m"
+	mainView := plain + purple
+	modal := strings.Repeat("M", 8)
+
+	out := OverlayView(mainView, modal, 80, 1, 0, 10)
+	if !strings.Contains(out, "MMMMMMMM") {
+		t.Fatalf("modal content missing: %q", out)
+	}
+	i := strings.Index(out, "MMMMMMMM")
+	afterModal := out[i+len("MMMMMMMM"):]
+	// Resume block resets then reapplies purple before the tail runes.
+	if !strings.Contains(afterModal, "\x1b[48;5;57m") {
+		n := 120
+		if len(afterModal) < n {
+			n = len(afterModal)
+		}
+		t.Fatalf("expected purple SGR after modal to style visible tail, got: %q", afterModal[:n])
 	}
 }
 
@@ -136,7 +178,7 @@ func TestOverlayView_examplesBehavior(t *testing.T) {
 	}
 
 	// Verify line 5 (start of modal) has background on left
-	if !strings.HasPrefix(lines[5], "Line 05: T") { // "Line 05: " is 9 chars. "T" is 10th char (index 9). Modal starts at 10.
+	if !strings.HasPrefix(ansi.Strip(lines[5]), "Line 05: T") { // "Line 05: " is 9 chars. "T" is 10th char (index 9). Modal starts at 10.
 		t.Errorf("Row 5 left background mismatch. Got %q", lines[5])
 	}
 }
