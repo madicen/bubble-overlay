@@ -5,10 +5,10 @@ package overlay
 
 import (
 	"strings"
-	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mattn/go-runewidth"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/cellbuf"
 )
 
 // OverlayView composites modalView on top of mainView. Only the rectangle at (top, left)
@@ -16,8 +16,11 @@ import (
 // string with viewHeight lines, each viewWidth cells wide (padding/truncation as needed).
 //
 // Main and modal strings may contain ANSI (e.g. from lipgloss); overlay uses display-cell
-// width so alignment is correct. Use this when you want the modal to "float" over the
-// main view without hiding the surrounding content.
+// width (grapheme-aware, matching lipgloss) so alignment is correct. After the modal,
+// graphics state that originated under the modal is re-applied so background colors and
+// other SGR attributes still apply to the visible tail of each line. A full SGR reset
+// (and hyperlink reset) is inserted immediately before the modal so the main line’s
+// active pen does not bleed into the first cells of the modal.
 func OverlayView(mainView, modalView string, viewWidth, viewHeight, top, left int) string {
 	mainLines := strings.Split(mainView, "\n")
 	modalLines := strings.Split(modalView, "\n")
@@ -75,8 +78,58 @@ func overlayLine(mainLine, modalLine string, left, modalW, viewWidth int) string
 		prefix += strings.Repeat(" ", left-w)
 	}
 	suffix := skipCells(mainLine, left+modalW)
-	line := prefix + modalLine + suffix
+	st, lk := penAtCellOffset(mainLine, left+modalW)
+	resume := ansiResumeAfterOverlay(st, lk)
+	// Clear pen after prefix so the modal is not drawn on top of the main line’s bg/fg.
+	beforeModal := ansi.ResetStyle + ansi.ResetHyperlink()
+	line := prefix + beforeModal + modalLine + resume + suffix
 	return padOrTruncateLine(line, viewWidth)
+}
+
+// penAtCellOffset returns the SGR + hyperlink pen after consuming n display cells of s
+// (same cell boundaries as skipCells(s, n)).
+func penAtCellOffset(s string, n int) (cellbuf.Style, cellbuf.Link) {
+	var st cellbuf.Style
+	var lk cellbuf.Link
+	var cellCount int
+	var state byte
+	p := ansi.GetParser()
+	defer ansi.PutParser(p)
+	pos := 0
+	for pos < len(s) {
+		seq, width, nRead, newState := ansi.DecodeSequence(s[pos:], state, p)
+		state = newState
+		if width == 0 {
+			if ansi.HasCsiPrefix(seq) && byte(p.Command()&0xff) == 'm' {
+				cellbuf.ReadStyle(p.Params(), &st)
+			} else if ansi.HasOscPrefix(seq) && p.Command() == 8 {
+				cellbuf.ReadLink(p.Data(), &lk)
+			}
+			pos += nRead
+			continue
+		}
+		if cellCount >= n {
+			return st, lk
+		}
+		cellCount += width
+		pos += nRead
+	}
+	return st, lk
+}
+
+// ansiResumeAfterOverlay resets terminal attributes (as after a typical lipgloss modal),
+// then reapplies pen so the following suffix bytes render like the original stream.
+func ansiResumeAfterOverlay(st cellbuf.Style, lk cellbuf.Link) string {
+	var b strings.Builder
+	b.WriteString(ansi.ResetStyle)
+	b.WriteString(ansi.ResetHyperlink())
+	if !lk.Empty() {
+		b.WriteString(ansi.SetHyperlink(lk.URL, lk.Params))
+	}
+	if !st.Empty() {
+		b.WriteString(st.Sequence())
+	}
+	return b.String()
 }
 
 // prefixCells returns the prefix of s that spans at most n display cells (ANSI preserved).
@@ -85,83 +138,51 @@ func prefixCells(s string, n int) string {
 		return ""
 	}
 	var cellCount int
-	i := 0
-	for i < len(s) {
-		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
-			j := i + 2
-			for j < len(s) {
-				c := s[j]
-				if c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' {
-					j++
-					break
-				}
-				j++
-			}
-			i = j
+	var state byte
+	p := ansi.GetParser()
+	defer ansi.PutParser(p)
+	pos := 0
+	for pos < len(s) {
+		_, width, nRead, newState := ansi.DecodeSequence(s[pos:], state, p)
+		state = newState
+		if width == 0 {
+			pos += nRead
 			continue
 		}
-		r, size := utf8.DecodeRuneInString(s[i:])
-		w := runewidth.RuneWidth(r)
-		if cellCount+w > n {
+		if cellCount+width > n {
 			break
 		}
-		cellCount += w
-		i += size
+		cellCount += width
+		pos += nRead
 	}
-	return s[:i]
+	return s[:pos]
 }
 
-// skipCells returns the substring of s starting after the first n display cells (ANSI preserved).
+// skipCells returns the substring of s starting at the first display cell index n (ANSI preserved).
 func skipCells(s string, n int) string {
 	var cellCount int
-	i := 0
-	for i < len(s) {
-		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
-			j := i + 2
-			for j < len(s) {
-				c := s[j]
-				if c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' {
-					j++
-					break
-				}
-				j++
-			}
-			i = j
+	var state byte
+	p := ansi.GetParser()
+	defer ansi.PutParser(p)
+	pos := 0
+	for pos < len(s) {
+		_, width, nRead, newState := ansi.DecodeSequence(s[pos:], state, p)
+		state = newState
+		if width == 0 {
+			pos += nRead
 			continue
 		}
-		r, size := utf8.DecodeRuneInString(s[i:])
-		w := runewidth.RuneWidth(r)
 		if cellCount >= n {
-			return s[i:]
+			return s[pos:]
 		}
-		cellCount += w
-		i += size
+		cellCount += width
+		pos += nRead
 	}
 	return ""
 }
 
 func widthCells(s string) int {
-	var n int
-	i := 0
-	for i < len(s) {
-		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
-			j := i + 2
-			for j < len(s) {
-				c := s[j]
-				if c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' {
-					j++
-					break
-				}
-				j++
-			}
-			i = j
-			continue
-		}
-		r, size := utf8.DecodeRuneInString(s[i:])
-		n += runewidth.RuneWidth(r)
-		i += size
-	}
-	return n
+	return ansi.StringWidth(s)
 }
 
 func padOrTruncateLine(line string, viewWidth int) string {
