@@ -5,42 +5,46 @@ import (
 	"os"
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	ov "github.com/madicen/bubble-overlay"
+	bov "github.com/madicen/bubble-overlay"
+	"github.com/madicen/bubble-overlay/v2"
 )
 
 type rootModel struct {
 	mainView string
-	stack    ov.OverlayStack
+	stack    overlayv2.Stack
 	width    int
 	height   int
 }
-
-// closeHelloMsg is sent when the user presses space inside the hello overlay.
-type closeHelloMsg struct{}
 
 type helloModal struct{}
 
 func (helloModal) Init() tea.Cmd { return nil }
 
-func (helloModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if k, ok := msg.(tea.KeyMsg); ok && k.String() == " " {
-		return helloModal{}, func() tea.Msg { return closeHelloMsg{} }
+func (m helloModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		if msg.String() == "space" {
+			return helloModal{}, func() tea.Msg { return closeHelloMsg{} }
+		}
 	}
-	return helloModal{}, nil
+	return m, nil
 }
 
-func (helloModal) View() string {
-	return lipgloss.NewStyle().
+func (helloModal) View() tea.View {
+	s := lipgloss.NewStyle().
 		Width(34).
 		Height(10).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("63")).
 		Align(lipgloss.Center, lipgloss.Center).
-		Render("Hello from OverlayStack!\n\nCenter placement + dimming.\n\nesc or space closes this dialog.\n\n(q or ctrl+c quits)")
+		Render("Hello from overlayv2 (Bubble Tea v2)!\n\nCenter + dimming.\n\nesc closes · space pops.")
+	return tea.NewView(s)
 }
+
+type closeHelloMsg struct{}
 
 type keyMap struct {
 	Quit key.Binding
@@ -53,7 +57,7 @@ var keys = keyMap{
 		key.WithHelp("q", "quit"),
 	),
 	Show: key.NewBinding(
-		key.WithKeys(" "),
+		key.WithKeys("space"),
 		key.WithHelp("space", "open modal"),
 	),
 }
@@ -74,34 +78,35 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		return m, m.stack.Update(msg)
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if key.Matches(msg, keys.Quit) {
 			return m, tea.Quit
 		}
-		if !m.stack.MainReceivesKeyMsg() {
+		if !m.stack.MainReceivesKeys() {
 			return m, m.stack.Update(msg)
 		}
 		if key.Matches(msg, keys.Show) {
-			cfg := ov.DefaultOverlayConfig()
-			return m, m.stack.Push(helloModal{}, cfg)
+			return m, m.stack.Push(helloModal{}, bov.DefaultOverlayConfig())
 		}
-		if msg.Type == tea.KeyEsc || msg.Type == tea.KeyEscape {
+		if msg.String() == "esc" {
 			return m, tea.Quit
 		}
 	}
 	return m, nil
 }
 
-func (m rootModel) View() string {
+func (m rootModel) View() tea.View {
 	w, h := m.width, m.height
 	if w == 0 || h == 0 {
 		w, h = 80, 25
 	}
-	return m.stack.View(m.mainView, w, h)
+	v := m.stack.CompositeView(m.mainView, w, h)
+	v.AltScreen = true
+	return v
 }
 
 func main() {
-	const s = "This is the main view. Press the spacebar to open a centered overlay."
+	const s = "Bubble Tea v2 + overlayv2. Press space for a centered overlay."
 	var lines []string
 	for i := range 19 {
 		lines = append(lines, fmt.Sprintf("%-4d %s", i, s))
@@ -109,7 +114,7 @@ func main() {
 	m := rootModel{
 		mainView: strings.Join(lines, "\n"),
 	}
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m)
 	if _, err := p.Run(); err != nil {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)
