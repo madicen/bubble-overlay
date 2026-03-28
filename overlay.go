@@ -69,6 +69,16 @@ func OverlayView(mainView, modalView string, viewWidth, viewHeight, top, left in
 	return strings.Join(out, "\n")
 }
 
+// OverlayViewInCenter is a helper that calculates the coordinates to center modalView
+// within the available terminal area defined by viewWidth and viewHeight, then
+// returns the result of OverlayView.
+func OverlayViewInCenter(mainView, modalView string, viewWidth, viewHeight int) string {
+	modalW, modalH := lipgloss.Size(modalView)
+	top := (viewHeight - modalH) / 2
+	left := (viewWidth - modalW) / 2
+	return OverlayView(mainView, modalView, viewWidth, viewHeight, top, left)
+}
+
 // overlayLine returns mainLine with modalLine overlaid at column left for modalW cells.
 // When mainLine has fewer than left cells (e.g. main view has fewer rows), prefix is
 // padded so the modal stays aligned at column left.

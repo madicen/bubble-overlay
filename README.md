@@ -13,7 +13,7 @@ Composable, float-over-content modals for [Bubble Tea](https://github.com/charmb
 ## Installation
 
 ```bash
-go get github.com/diceguyd30/bubble-overlay
+go get github.com/madicen/bubble-overlay
 ```
 
 ## Usage
@@ -24,9 +24,11 @@ go get github.com/diceguyd30/bubble-overlay
 
 The **`examples/colors`** demo shows two cases on adjacent rows: a purple commit hash with a cyan tail (row 0), and a full-width olive background bar (row 1). The modal is anchored so it cuts through both; toggle it with space and check that colors continue correctly to the right of the box.
 
+The easiest way to use it is `OverlayViewInCenter`, which automatically calculates the coordinates to center your modal within the terminal area:
+
 ```go
 import (
-    overlay "github.com/diceguyd30/bubble-overlay"
+    overlay "github.com/madicen/bubble-overlay"
 )
 
 // In your View() method:
@@ -38,9 +40,8 @@ func (m model) View() string {
         // Render your modal content (e.g. using lipgloss)
         modalView := m.modalContent()
         
-        // Composite the modal over the main view
-        // Signature: OverlayView(main, modal, width, height, y, x)
-        return overlay.OverlayView(mainView, modalView, m.width, m.height, 5, 10)
+        // Automatically center the modal
+        return overlay.OverlayViewInCenter(mainView, modalView, m.width, m.height)
     }
     
     return mainView

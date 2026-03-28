@@ -72,7 +72,7 @@ func (m model) View() string {
 		BorderForeground(lipgloss.Color("63")).
 		Render("Hello, from the modal! Press 'q' or 'esc' to quit.")
 
-	return overlay.OverlayView(m.mainView, modal, w, h, 5, 10)
+	return overlay.OverlayViewInCenter(m.mainView, modal, w, h)
 }
 
 func main() {

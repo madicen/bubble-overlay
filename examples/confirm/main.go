@@ -107,7 +107,7 @@ func (m model) View() string {
 		BorderForeground(lipgloss.Color("63")).
 		Render(content)
 
-	return overlay.OverlayView(m.mainView, modal, w, h, 5, 10)
+	return overlay.OverlayViewInCenter(m.mainView, modal, w, h)
 }
 
 func main() {
