@@ -88,22 +88,35 @@ func TestOverlayView_modalReplacesRegion(t *testing.T) {
 	}
 	modalView := strings.Join(modalLines, "\n")
 
-	out := OverlayView(mainView, modalView, 20, 5, 1, 5)
+	// Test with transparency enabled
+	out := OverlayViewWithTransparency(mainView, modalView, 20, 5, 1, 5)
 	lines := strings.Split(out, "\n")
 
 	// Row 1 (first modal row): main has A(0-4), then overlay 5-14, then main B(15-19).
 	// Overlay region: modal "MM  MM    " -> where modal has space, main shows (A or B). So we expect A and B to show through.
 	row1 := ansi.Strip(lines[1])
-	// Left of overlay (cols 0-4): A
-	if !strings.Contains(row1[:5], "A") {
-		t.Errorf("row 1 left: want A from main, got %q", row1[:5])
+
+	// mainLine[1]: "AAAAABBBBBAAAAABBBBB"
+	// overlay at left=5, modalW=10.
+	// main region covered: "BBBBBAAAAA" (index 5 to 14)
+	// modalLine[0]: "MM  MM    " (10 chars: M, M, space, space, M, M, space, space, space, space)
+	// expected result at indices 5-14: "MMBBMMAAAA"
+	wantMid := "MMBBMMAAAA"
+	if gotMid := row1[5:15]; gotMid != wantMid {
+		t.Errorf("row 1 overlay region: want %q, got %q", wantMid, gotMid)
 	}
-	// Overlay (cols 5-14): M where modal has M, main (A or B) where modal has space. Modal "MM  MM    " -> positions 2,3 are space (main B from 7,8), 6,7,8,9 are space (main A from 11-14? No, overlay 5-14: main region is mainLine[5:15] = "BBBBBAAAAA". So cell 0 of overlay = main col 5 = B, cell 1 = B, cell 2 = B, cell 3 = B, cell 4 = A, cell 5 = A, cell 6 = A, cell 7 = A, cell 8 = A, cell 9 = A. Modal "MM  MM    " = M M space space M M space space space space. So we want: M M B B M M A A A A.
-	if !strings.Contains(row1[5:15], "M") {
-		t.Errorf("row 1 overlay region: want modal content, got %q", row1[5:15])
-	}
-	if !strings.Contains(row1[15:], "B") {
-		t.Errorf("row 1 right margin: want B from main, got %q", row1[15:])
+}
+
+func TestOverlayView_opaqueIsTrulyOpaque(t *testing.T) {
+	mainView := "AAAAAAAAAA"
+	modalView := "  MM  "
+	// 10 wide, 1 tall. Modal at left 2, width 6.
+	out := OverlayView(mainView, modalView, 10, 1, 0, 2)
+	stripped := ansi.Strip(out)
+	// Expected: AA  MM  AA (the spaces in modal overwrite the main view)
+	want := "AA  MM  AA"
+	if stripped != want {
+		t.Errorf("opaque overlay: want %q, got %q", want, stripped)
 	}
 }
 

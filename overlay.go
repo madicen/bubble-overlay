@@ -5,6 +5,7 @@ package overlay
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -22,10 +23,26 @@ import (
 // (and hyperlink reset) is inserted immediately before the modal so the main line’s
 // active pen does not bleed into the first cells of the modal.
 func OverlayView(mainView, modalView string, viewWidth, viewHeight, top, left int) string {
+	return overlayViewInternal(mainView, modalView, viewWidth, viewHeight, top, left, 0)
+}
+
+// OverlayViewWithTransparency is like OverlayView but allows the main view to show
+// through "empty" cells in the modal (cells that are just a space ' ' with no background).
+func OverlayViewWithTransparency(mainView, modalView string, viewWidth, viewHeight, top, left int) string {
+	return OverlayView(mainView, modalView, viewWidth, viewHeight, top, left)
+}
+
+// OverlayViewWithMask is like OverlayViewWithTransparency but treats any cell with the
+// provided rune as transparent (pass-through to main view).
+func OverlayViewWithMask(mainView, modalView string, viewWidth, viewHeight, top, left int, maskRune rune) string {
+	return overlayViewInternal(mainView, modalView, viewWidth, viewHeight, top, left, maskRune)
+}
+
+func overlayViewInternal(mainView, modalView string, viewWidth, viewHeight, top, left int, maskRune rune) string {
 	mainLines := strings.Split(mainView, "\n")
 	modalLines := strings.Split(modalView, "\n")
 	if len(modalLines) == 0 {
-		var out []string
+		out := make([]string, 0, viewHeight)
 		for row := range viewHeight {
 			line := ""
 			if row < len(mainLines) {
@@ -63,7 +80,7 @@ func OverlayView(mainView, modalView string, viewWidth, viewHeight, top, left in
 			continue
 		}
 		modalLine := modalLines[row-top]
-		combined := overlayLine(mainLine, modalLine, left, modalW, viewWidth)
+		combined := overlayLine(mainLine, modalLine, left, modalW, viewWidth, maskRune)
 		out = append(out, combined)
 	}
 	return strings.Join(out, "\n")
@@ -79,21 +96,150 @@ func OverlayViewInCenter(mainView, modalView string, viewWidth, viewHeight int) 
 	return OverlayView(mainView, modalView, viewWidth, viewHeight, top, left)
 }
 
+// OverlayViewInCenterWithTransparency is a helper that calculates the coordinates to center modalView
+// within the available terminal area defined by viewWidth and viewHeight, then
+// returns the result of OverlayViewWithTransparency.
+func OverlayViewInCenterWithTransparency(mainView, modalView string, viewWidth, viewHeight int) string {
+	modalW, modalH := lipgloss.Size(modalView)
+	top := (viewHeight - modalH) / 2
+	left := (viewWidth - modalW) / 2
+	return OverlayViewWithTransparency(mainView, modalView, viewWidth, viewHeight, top, left)
+}
+
+// OverlayViewInCenterWithMask is a helper that calculates the coordinates to center modalView
+// within the available terminal area defined by viewWidth and viewHeight, then
+// returns the result of OverlayViewWithMask.
+func OverlayViewInCenterWithMask(mainView, modalView string, viewWidth, viewHeight int, maskRune rune) string {
+	modalW, modalH := lipgloss.Size(modalView)
+	top := (viewHeight - modalH) / 2
+	left := (viewWidth - modalW) / 2
+	return OverlayViewWithMask(mainView, modalView, viewWidth, viewHeight, top, left, maskRune)
+}
+
 // overlayLine returns mainLine with modalLine overlaid at column left for modalW cells.
 // When mainLine has fewer than left cells (e.g. main view has fewer rows), prefix is
 // padded so the modal stays aligned at column left.
-func overlayLine(mainLine, modalLine string, left, modalW, viewWidth int) string {
-	prefix := prefixCells(mainLine, left)
-	if w := widthCells(prefix); w < left {
-		prefix += strings.Repeat(" ", left-w)
+func overlayLine(mainLine, modalLine string, left, modalW, viewWidth int, maskRune rune) string {
+	if maskRune == 0 {
+		prefix := prefixCells(mainLine, left)
+		if w := widthCells(prefix); w < left {
+			prefix += strings.Repeat(" ", left-w)
+		}
+		suffix := skipCells(mainLine, left+modalW)
+		st, lk := penAtCellOffset(mainLine, left+modalW)
+		resume := ansiResumeAfterOverlay(st, lk)
+		// Clear pen after prefix so the modal is not drawn on top of the main line’s bg/fg.
+		beforeModal := ansi.ResetStyle + ansi.ResetHyperlink()
+		line := prefix + beforeModal + modalLine + resume + suffix
+		return padOrTruncateLine(line, viewWidth)
 	}
-	suffix := skipCells(mainLine, left+modalW)
-	st, lk := penAtCellOffset(mainLine, left+modalW)
-	resume := ansiResumeAfterOverlay(st, lk)
-	// Clear pen after prefix so the modal is not drawn on top of the main line’s bg/fg.
-	beforeModal := ansi.ResetStyle + ansi.ResetHyperlink()
-	line := prefix + beforeModal + modalLine + resume + suffix
-	return padOrTruncateLine(line, viewWidth)
+
+	// Transparency logic using cellbuf for correct compositing.
+	buf := cellbuf.NewBuffer(viewWidth, 1)
+	setString(buf, 0, 0, mainLine)
+
+	mBuf := cellbuf.NewBuffer(modalW, 1)
+	setString(mBuf, 0, 0, modalLine)
+
+	for x := 0; x < modalW; x++ {
+		if left+x >= viewWidth {
+			break
+		}
+		mCell := mBuf.Cell(x, 0)
+
+		// Handle Mask Rune (Green Screen)
+		if maskRune != 0 && mCell.Rune == maskRune {
+			continue
+		}
+		buf.SetCell(left+x, 0, mCell)
+	}
+
+	return renderLine(buf, viewWidth)
+}
+
+func renderLine(buf *cellbuf.Buffer, width int) string {
+	var b strings.Builder
+	var curStyle cellbuf.Style
+	var curLink cellbuf.Link
+
+	// Start with a clean slate for the line.
+	b.WriteString(ansi.ResetStyle)
+	b.WriteString(ansi.ResetHyperlink())
+
+	var skip int
+	for x := 0; x < width; x++ {
+		if skip > 0 {
+			skip--
+			continue
+		}
+		c := buf.Cell(x, 0)
+		if c.Style != curStyle {
+			if c.Style.Empty() {
+				b.WriteString(ansi.ResetStyle)
+			} else {
+				b.WriteString(c.Style.Sequence())
+			}
+			curStyle = c.Style
+		}
+		if c.Link != curLink {
+			if c.Link.Empty() {
+				b.WriteString(ansi.ResetHyperlink())
+			} else {
+				b.WriteString(ansi.SetHyperlink(c.Link.URL, c.Link.Params))
+			}
+			curLink = c.Link
+		}
+		if c.Rune != 0 {
+			b.WriteRune(c.Rune)
+			w := ansi.StringWidth(string(c.Rune))
+			if w > 1 {
+				skip = w - 1
+			}
+		} else {
+			b.WriteByte(' ')
+		}
+	}
+
+	// Final reset to ensure terminal state is clean for the next line or prompt.
+	b.WriteString(ansi.ResetStyle)
+	b.WriteString(ansi.ResetHyperlink())
+	return b.String()
+}
+
+func setString(buf *cellbuf.Buffer, x, y int, s string) {
+	var st cellbuf.Style
+	var lk cellbuf.Link
+	var state byte
+	p := ansi.GetParser()
+	defer ansi.PutParser(p)
+	pos := 0
+	curX := x
+	for pos < len(s) {
+		seq, width, nRead, newState := ansi.DecodeSequence(s[pos:], state, p)
+		state = newState
+		if width == 0 {
+			if ansi.HasCsiPrefix(seq) && byte(p.Command()&0xff) == 'm' {
+				cellbuf.ReadStyle(p.Params(), &st)
+			} else if ansi.HasOscPrefix(seq) && p.Command() == 8 {
+				cellbuf.ReadLink(p.Data(), &lk)
+			}
+			pos += nRead
+			continue
+		}
+		if curX < buf.Width() {
+			r, _ := utf8.DecodeRuneInString(seq)
+			buf.SetCell(curX, y, &cellbuf.Cell{
+				Rune:  r,
+				Style: st,
+				Link:  lk,
+			})
+			for i := 1; i < width && curX+i < buf.Width(); i++ {
+				buf.SetCell(curX+i, y, &cellbuf.Cell{Rune: 0, Style: st, Link: lk})
+			}
+		}
+		curX += width
+		pos += nRead
+	}
 }
 
 // penAtCellOffset returns the SGR + hyperlink pen after consuming n display cells of s

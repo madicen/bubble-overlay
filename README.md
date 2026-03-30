@@ -6,9 +6,9 @@ Composable, float-over-content modals for [Bubble Tea](https://github.com/charmb
 
 ## Gallery
 
-| Confirm Dialog | Form Input | Async Spinner | ANSI / colors |
-| :---: | :---: | :---: | :---: |
-| ![Confirm](screenshots/confirm.gif) | ![Form](screenshots/form.gif) | ![Spinner](screenshots/spinner.gif) | ![Colors](screenshots/colors.gif) |
+| Confirm Dialog | Form Input | Async Spinner | ANSI / colors | Transparency |
+| :---: | :---: | :---: | :---: | :---: |
+| ![Confirm](screenshots/confirm.gif) | ![Form](screenshots/form.gif) | ![Spinner](screenshots/spinner.gif) | ![Colors](screenshots/colors.gif) | ![Transparency](screenshots/transparency.gif) |
 
 ## Installation
 
@@ -23,6 +23,18 @@ go get github.com/madicen/bubble-overlay
 **Styled backgrounds under the modal:** If a foreground/background style starts *before* the overlay and continues *after* it (for example one lipgloss block with `.Width(w)` or a long colored segment), the escape sequences that turn that style on may sit entirely underneath the modal. Without re-applying the pen, the tail of the line would render with the terminal’s default colors. This library inserts a reset immediately **before** the modal (so the main line’s active background does not bleed into the first cells of the dialog), then after the modal content it resets again and emits the style that belonged at the right edge of the hole, so the left segment, the modal, and the right segment all line up visually.
 
 The **`examples/colors`** demo shows two cases on adjacent rows: a purple commit hash with a cyan tail (row 0), and a full-width olive background bar (row 1). The modal is anchored so it cuts through both; toggle it with space and check that colors continue correctly to the right of the box.
+
+### Green Screen / Transparency
+
+The library supports a "Green Screen" effect using a mask character. When using `OverlayViewWithMask`, any instance of the chosen `maskRune` in your modal view will be treated as a "hole," allowing the background content to show through exactly at that position. This is useful for providing context or creating "magnifying glass" effects where the modal follows a selection.
+
+Unlike standard transparency which might rely on background colors, this is strictly character-based:
+1. **Opaque by default**: Every character in your overlay (including spaces) overwrites the background.
+2. **Surgical Transparency**: Only the specific `rune` you provide acts as a pass-through.
+
+Check out **`examples/transparency`** to see this in action.
+
+### Standard Usage
 
 The easiest way to use it is `OverlayViewInCenter`, which automatically calculates the coordinates to center your modal within the terminal area:
 
@@ -56,6 +68,7 @@ go run examples/confirm/main.go
 go run examples/form/main.go
 go run examples/spinner/main.go
 go run examples/colors/main.go
+go run examples/transparency/main.go
 ```
 
 ## Recording GIFs (VHS)

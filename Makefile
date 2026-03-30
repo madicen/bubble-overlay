@@ -7,3 +7,4 @@ gifs:
 	vhs < vhs/form.tape
 	vhs < vhs/spinner.tape
 	vhs < vhs/colors.tape
+	vhs < vhs/transparency.tape
