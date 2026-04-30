@@ -2,7 +2,7 @@ Output "screenshots/colors.gif"
 Source "vhs/_env.tape"
 Set Theme "Dracula"
 Set FontSize 20
-Set Width 1000
+Set Width 800
 Set Height 600
 
 Hide
@@ -15,6 +15,4 @@ Sleep 1s
 Show
 Sleep 1s
 Type " "
-Sleep 3s
-Type " "
-Sleep 1s
+Sleep 2s
