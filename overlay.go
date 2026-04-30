@@ -1,5 +1,12 @@
 // Package overlay provides OverlayView for compositing a modal over a main view
 // so only the modal rectangle is replaced; the rest of the main view stays visible.
+//
+// OverlayStack composes multiple Bubble Tea models with optional dimming,
+// declarative placement (OverlayConfig), Escape / click-outside dismissal, and
+// focus-trapped updates (see OverlayStack.MainReceivesKeyMsg and FocusTrap).
+//
+// For Bubble Tea v2 (charm.land/bubbletea/v2), use import path
+// github.com/madicen/bubble-overlay/v2 (package overlayv2). See docs/ADR-v2-bridge.md.
 
 package overlay
 
@@ -10,6 +17,15 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/cellbuf"
+)
+
+// overlayMergeKind selects how modal cells replace main cells in the cellbuf compositor.
+type overlayMergeKind uint8
+
+const (
+	mergeOpaque overlayMergeKind = iota
+	mergeTransparentSpaces
+	mergeMaskRune
 )
 
 // OverlayView composites modalView on top of mainView. Only the rectangle at (top, left)
@@ -23,22 +39,27 @@ import (
 // (and hyperlink reset) is inserted immediately before the modal so the main line’s
 // active pen does not bleed into the first cells of the modal.
 func OverlayView(mainView, modalView string, viewWidth, viewHeight, top, left int) string {
-	return overlayViewInternal(mainView, modalView, viewWidth, viewHeight, top, left, 0)
+	return overlayViewInternal(mainView, modalView, viewWidth, viewHeight, top, left, mergeOpaque, 0)
 }
 
-// OverlayViewWithTransparency is like OverlayView but allows the main view to show
-// through "empty" cells in the modal (cells that are just a space ' ' with no background).
+// OverlayViewWithTransparency is like OverlayView but cells in the modal that are ASCII
+// space (' ') are treated as transparent: the main view shows through at those positions.
+// Non-space modal cells (including styled spaces from lipgloss that carry a background)
+// still replace the main view.
 func OverlayViewWithTransparency(mainView, modalView string, viewWidth, viewHeight, top, left int) string {
-	return OverlayView(mainView, modalView, viewWidth, viewHeight, top, left)
+	return overlayViewInternal(mainView, modalView, viewWidth, viewHeight, top, left, mergeTransparentSpaces, 0)
 }
 
-// OverlayViewWithMask is like OverlayViewWithTransparency but treats any cell with the
-// provided rune as transparent (pass-through to main view).
+// OverlayViewWithMask is like OverlayView but treats any cell whose rune equals maskRune
+// as transparent (pass-through to the main view). Use 0 for maskRune to behave like OverlayView.
 func OverlayViewWithMask(mainView, modalView string, viewWidth, viewHeight, top, left int, maskRune rune) string {
-	return overlayViewInternal(mainView, modalView, viewWidth, viewHeight, top, left, maskRune)
+	if maskRune == 0 {
+		return OverlayView(mainView, modalView, viewWidth, viewHeight, top, left)
+	}
+	return overlayViewInternal(mainView, modalView, viewWidth, viewHeight, top, left, mergeMaskRune, maskRune)
 }
 
-func overlayViewInternal(mainView, modalView string, viewWidth, viewHeight, top, left int, maskRune rune) string {
+func overlayViewInternal(mainView, modalView string, viewWidth, viewHeight, top, left int, kind overlayMergeKind, maskRune rune) string {
 	mainLines := strings.Split(mainView, "\n")
 	modalLines := strings.Split(modalView, "\n")
 	if len(modalLines) == 0 {
@@ -59,7 +80,6 @@ func overlayViewInternal(mainView, modalView string, viewWidth, viewHeight, top,
 			modalW = w
 		}
 	}
-	// Clamp so modal fits
 	if left+modalW > viewWidth {
 		left = max(0, viewWidth-modalW)
 	}
@@ -80,7 +100,7 @@ func overlayViewInternal(mainView, modalView string, viewWidth, viewHeight, top,
 			continue
 		}
 		modalLine := modalLines[row-top]
-		combined := overlayLine(mainLine, modalLine, left, modalW, viewWidth, maskRune)
+		combined := overlayLine(mainLine, modalLine, left, modalW, viewWidth, kind, maskRune)
 		out = append(out, combined)
 	}
 	return strings.Join(out, "\n")
@@ -96,9 +116,7 @@ func OverlayViewInCenter(mainView, modalView string, viewWidth, viewHeight int) 
 	return OverlayView(mainView, modalView, viewWidth, viewHeight, top, left)
 }
 
-// OverlayViewInCenterWithTransparency is a helper that calculates the coordinates to center modalView
-// within the available terminal area defined by viewWidth and viewHeight, then
-// returns the result of OverlayViewWithTransparency.
+// OverlayViewInCenterWithTransparency is like OverlayViewInCenter but uses OverlayViewWithTransparency.
 func OverlayViewInCenterWithTransparency(mainView, modalView string, viewWidth, viewHeight int) string {
 	modalW, modalH := lipgloss.Size(modalView)
 	top := (viewHeight - modalH) / 2
@@ -106,9 +124,7 @@ func OverlayViewInCenterWithTransparency(mainView, modalView string, viewWidth, 
 	return OverlayViewWithTransparency(mainView, modalView, viewWidth, viewHeight, top, left)
 }
 
-// OverlayViewInCenterWithMask is a helper that calculates the coordinates to center modalView
-// within the available terminal area defined by viewWidth and viewHeight, then
-// returns the result of OverlayViewWithMask.
+// OverlayViewInCenterWithMask is like OverlayViewInCenter but uses OverlayViewWithMask.
 func OverlayViewInCenterWithMask(mainView, modalView string, viewWidth, viewHeight int, maskRune rune) string {
 	modalW, modalH := lipgloss.Size(modalView)
 	top := (viewHeight - modalH) / 2
@@ -116,11 +132,8 @@ func OverlayViewInCenterWithMask(mainView, modalView string, viewWidth, viewHeig
 	return OverlayViewWithMask(mainView, modalView, viewWidth, viewHeight, top, left, maskRune)
 }
 
-// overlayLine returns mainLine with modalLine overlaid at column left for modalW cells.
-// When mainLine has fewer than left cells (e.g. main view has fewer rows), prefix is
-// padded so the modal stays aligned at column left.
-func overlayLine(mainLine, modalLine string, left, modalW, viewWidth int, maskRune rune) string {
-	if maskRune == 0 {
+func overlayLine(mainLine, modalLine string, left, modalW, viewWidth int, kind overlayMergeKind, maskRune rune) string {
+	if kind == mergeOpaque {
 		prefix := prefixCells(mainLine, left)
 		if w := widthCells(prefix); w < left {
 			prefix += strings.Repeat(" ", left-w)
@@ -128,13 +141,11 @@ func overlayLine(mainLine, modalLine string, left, modalW, viewWidth int, maskRu
 		suffix := skipCells(mainLine, left+modalW)
 		st, lk := penAtCellOffset(mainLine, left+modalW)
 		resume := ansiResumeAfterOverlay(st, lk)
-		// Clear pen after prefix so the modal is not drawn on top of the main line’s bg/fg.
 		beforeModal := ansi.ResetStyle + ansi.ResetHyperlink()
 		line := prefix + beforeModal + modalLine + resume + suffix
 		return padOrTruncateLine(line, viewWidth)
 	}
 
-	// Transparency logic using cellbuf for correct compositing.
 	buf := cellbuf.NewBuffer(viewWidth, 1)
 	setString(buf, 0, 0, mainLine)
 
@@ -146,10 +157,18 @@ func overlayLine(mainLine, modalLine string, left, modalW, viewWidth int, maskRu
 			break
 		}
 		mCell := mBuf.Cell(x, 0)
-
-		// Handle Mask Rune (Green Screen)
-		if maskRune != 0 && mCell.Rune == maskRune {
+		if mCell == nil {
 			continue
+		}
+		switch kind {
+		case mergeTransparentSpaces:
+			if mCell.Rune == ' ' {
+				continue
+			}
+		case mergeMaskRune:
+			if mCell.Rune == maskRune {
+				continue
+			}
 		}
 		buf.SetCell(left+x, 0, mCell)
 	}
@@ -162,7 +181,6 @@ func renderLine(buf *cellbuf.Buffer, width int) string {
 	var curStyle cellbuf.Style
 	var curLink cellbuf.Link
 
-	// Start with a clean slate for the line.
 	b.WriteString(ansi.ResetStyle)
 	b.WriteString(ansi.ResetHyperlink())
 
@@ -173,6 +191,9 @@ func renderLine(buf *cellbuf.Buffer, width int) string {
 			continue
 		}
 		c := buf.Cell(x, 0)
+		if c == nil {
+			continue
+		}
 		if c.Style != curStyle {
 			if c.Style.Empty() {
 				b.WriteString(ansi.ResetStyle)
@@ -200,7 +221,6 @@ func renderLine(buf *cellbuf.Buffer, width int) string {
 		}
 	}
 
-	// Final reset to ensure terminal state is clean for the next line or prompt.
 	b.WriteString(ansi.ResetStyle)
 	b.WriteString(ansi.ResetHyperlink())
 	return b.String()
@@ -273,8 +293,6 @@ func penAtCellOffset(s string, n int) (cellbuf.Style, cellbuf.Link) {
 	return st, lk
 }
 
-// ansiResumeAfterOverlay resets terminal attributes (as after a typical lipgloss modal),
-// then reapplies pen so the following suffix bytes render like the original stream.
 func ansiResumeAfterOverlay(st cellbuf.Style, lk cellbuf.Link) string {
 	var b strings.Builder
 	b.WriteString(ansi.ResetStyle)
@@ -288,7 +306,6 @@ func ansiResumeAfterOverlay(st cellbuf.Style, lk cellbuf.Link) string {
 	return b.String()
 }
 
-// prefixCells returns the prefix of s that spans at most n display cells (ANSI preserved).
 func prefixCells(s string, n int) string {
 	if n <= 0 {
 		return ""
@@ -314,7 +331,7 @@ func prefixCells(s string, n int) string {
 	return s[:pos]
 }
 
-// skipCells returns the substring of s starting at the first display cell index n (ANSI preserved).
+// skipCells returns the substring of s starting after the first n display cells (ANSI preserved).
 func skipCells(s string, n int) string {
 	var cellCount int
 	var state byte

@@ -1,4 +1,4 @@
-Output "screenshots/simple.gif"
+Output "screenshots/stack.gif"
 Source "vhs/_env.tape"
 Set Theme "Dracula"
 Set FontSize 20
@@ -9,12 +9,18 @@ Hide
 Type "go mod download"
 Enter
 Sleep 3s
-Type "go run ./examples/simple"
+Type "OVERLAY_DEV=1 go run ./examples/stack"
 Enter
 Sleep 1s
 Show
 Sleep 1s
 Type " "
 Sleep 1s
+Type "i"
+Sleep 1s
 Escape
+Sleep 1s
+Escape
+Sleep 1s
+Type "q"
 Sleep 1s

@@ -13,6 +13,4 @@ Type "go run ./examples/spinner"
 Enter
 Sleep 1s
 Show
-Sleep 1s
-Type " "
-Sleep 3s
+Sleep 2s

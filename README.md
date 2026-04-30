@@ -1,14 +1,12 @@
 # bubble-overlay
 
-Composable, float-over-content modals for [Bubble Tea](https://github.com/charmbracelet/bubbletea).
+Composable modals and overlay stacks for [Bubble Tea](https://github.com/charmbracelet/bubbletea): **v1** (`View() string` + `OverlayView` / `OverlayStack`) and **v2** (`View() tea.View` + [`overlayv2`](v2/)).
 
 ![Simple Demo](screenshots/simple.gif)
 
-## Gallery
+## Requirements
 
-| Confirm Dialog | Form Input | Async Spinner | ANSI / colors | Transparency |
-| :---: | :---: | :---: | :---: | :---: |
-| ![Confirm](screenshots/confirm.gif) | ![Form](screenshots/form.gif) | ![Spinner](screenshots/spinner.gif) | ![Colors](screenshots/colors.gif) | ![Transparency](screenshots/transparency.gif) |
+- **Go 1.25+** (this module includes `charm.land/bubbletea/v2` alongside Bubble Tea v1.)
 
 ## Installation
 
@@ -16,51 +14,100 @@ Composable, float-over-content modals for [Bubble Tea](https://github.com/charmb
 go get github.com/madicen/bubble-overlay
 ```
 
-## Usage
+The v2 API lives at import path **`github.com/madicen/bubble-overlay/v2`** (package `overlayv2`); you still add the root module once.
 
-`bubble-overlay` provides a simple way to overlay a string view (like a modal or dialog) on top of another string view (your main application interface) without destroying the background context. It handles ANSI escape codes correctly: cell widths match lipgloss, and SGR/hyperlink state that would have been set under the modal is re-applied after it so the visible tail of each line still looks right.
+## Which API should I use?
 
-**Styled backgrounds under the modal:** If a foreground/background style starts *before* the overlay and continues *after* it (for example one lipgloss block with `.Width(w)` or a long colored segment), the escape sequences that turn that style on may sit entirely underneath the modal. Without re-applying the pen, the tail of the line would render with the terminal’s default colors. This library inserts a reset immediately **before** the modal (so the main line’s active background does not bleed into the first cells of the dialog), then after the modal content it resets again and emits the style that belonged at the right edge of the hole, so the left segment, the modal, and the right segment all line up visually.
+| You are on… | Use |
+|-------------|-----|
+| [Bubble Tea v1](https://github.com/charmbracelet/bubbletea), `View() string` | Package **`overlay`**: `OverlayView`, `OverlayStack`, `OverlayConfig`, `FocusTrap`. |
+| [Bubble Tea v2](https://github.com/charmbracelet/bubbletea/blob/main/UPGRADE_GUIDE_V2.md) (`charm.land/bubbletea/v2`), `View() tea.View` | Package **`overlayv2`**: [`Stack`](v2/stack.go), `CompositeView`, shared config from **`overlay`**. |
 
-The **`examples/colors`** demo shows two cases on adjacent rows: a purple commit hash with a cyan tail (row 0), and a full-width olive background bar (row 1). The modal is anchored so it cuts through both; toggle it with space and check that colors continue correctly to the right of the box.
+Both paths use the same **string compositing** for the terminal (`overlay.OverlayView`, grapheme-aware, ANSI/hyperlink-safe). The v2 stack flattens each child `tea.View`, composites, then wraps with `tea.NewView` — see [docs/ADR-v2-bridge.md](docs/ADR-v2-bridge.md).
 
-### Green Screen / Transparency
+---
 
-The library supports a "Green Screen" effect using a mask character. When using `OverlayViewWithMask`, any instance of the chosen `maskRune` in your modal view will be treated as a "hole," allowing the background content to show through exactly at that position. This is useful for providing context or creating "magnifying glass" effects where the modal follows a selection.
-
-Unlike standard transparency which might rely on background colors, this is strictly character-based:
-1. **Opaque by default**: Every character in your overlay (including spaces) overwrites the background.
-2. **Surgical Transparency**: Only the specific `rune` you provide acts as a pass-through.
-
-Check out **`examples/transparency`** to see this in action.
-
-### Standard Usage
-
-The easiest way to use it is `OverlayViewInCenter`, which automatically calculates the coordinates to center your modal within the terminal area:
+## Bubble Tea v1 — quick start
 
 ```go
-import (
-    overlay "github.com/madicen/bubble-overlay"
-)
+import overlay "github.com/madicen/bubble-overlay"
 
-// In your View() method:
 func (m model) View() string {
-    // Render your main application view
-    mainView := m.mainContent()
-
-    if m.showModal {
-        // Render your modal content (e.g. using lipgloss)
-        modalView := m.modalContent()
-        
-        // Automatically center the modal
-        return overlay.OverlayViewInCenter(mainView, modalView, m.width, m.height)
-    }
-    
-    return mainView
+	main := m.renderMain()
+	if !m.showModal {
+		return main
+	}
+	modal := lipgloss.NewStyle().Width(40).Render("…")
+	return overlay.OverlayView(main, modal, m.width, m.height, row, col)
 }
 ```
 
-## Running Examples
+**OverlayStack** adds nested modals, dimming, `Center` / `RightDrawer` / `Fixed`, Escape and optional click-outside, and **`FocusTrap`** so your base model skips keys/mouse while overlays are open. See **`examples/simple`**, **`examples/confirm`**, **`examples/stack`**.
+
+---
+
+## Bubble Tea v2 — quick start
+
+```go
+import (
+	tea "charm.land/bubbletea/v2"
+	bov "github.com/madicen/bubble-overlay"
+	"github.com/madicen/bubble-overlay/v2"
+)
+
+func (m rootModel) View() tea.View {
+	w, h := m.width, m.height
+	if w == 0 || h == 0 {
+		w, h = 80, 25
+	}
+	v := m.stack.CompositeView(m.mainView, w, h)
+	v.AltScreen = true
+	return v
+}
+```
+
+Run **`go run examples/v2simple/main.go`**. Use **`overlayv2.FocusTrap`** like v1 `FocusTrap` for interactive routing.
+
+---
+
+## Usage
+
+`bubble-overlay` composites a string modal over a string main view without destroying the background. It uses display-cell width (grapheme-aware, aligned with lipgloss) and handles ANSI correctly: a full SGR reset (and hyperlink reset) is inserted immediately **before** the modal so the main line’s active pen does not bleed into the dialog, then after the modal the pen that belonged at the right edge of the hole is re-applied so long styled runs (e.g. full-width lipgloss bars) still look correct past the cut.
+
+**`examples/colors`** shows two styled rows with the modal cutting through them; toggle with space.
+
+### Transparency and mask
+
+- **`OverlayViewWithTransparency`**: ASCII space (`' '`) in the modal is treated as transparent so the main view shows through at those cells.
+- **`OverlayViewWithMask`**: choose a **mask rune** (e.g. `░`); only those cells pass through to the main view — see **`examples/transparency`**.
+
+Helpers **`OverlayViewInCenter`**, **`OverlayViewInCenterWithTransparency`**, and **`OverlayViewInCenterWithMask`** center the modal then composite.
+
+---
+
+## Package reference
+
+| Symbol | Package | Role |
+|--------|---------|------|
+| `OverlayView`, `OverlayViewWithTransparency`, `OverlayViewWithMask`, `DimSurface` | `overlay` | Hole-punch compositing; dim multiline string. |
+| `OverlayConfig`, `Placement` | `overlay` | Per-frame dimming and anchor. |
+| `OverlayStack`, `OverlayOnCloser`, `FocusTrap`, `DevStackDepthFooter` | `overlay` | v1 stack and helpers. |
+| `Stack`, `ViewAdapter`, `StringPipelineAdapter`, `ViewString` | `overlayv2` | v2 stack + R1 compositor. |
+
+---
+
+## Examples
+
+| Example | Bubble Tea | What it shows |
+|---------|------------|----------------|
+| `examples/simple` | v1 | `OverlayStack`, center + dim |
+| `examples/confirm` | v1 | Yes/no + cmd + `Pop` |
+| `examples/stack` | v1 | Nested overlays, `OVERLAY_DEV=1` footer |
+| `examples/form` | v1 | `OverlayView` + text input |
+| `examples/spinner` | v1 | `OverlayView` + spinner |
+| `examples/colors` | v1 | Styled lines through the modal cut |
+| `examples/transparency` | v1 | Mask rune pass-through |
+| `examples/v2simple` | v2 | `overlayv2.Stack` + `CompositeView` |
 
 ```bash
 go run examples/simple/main.go
@@ -69,12 +116,23 @@ go run examples/form/main.go
 go run examples/spinner/main.go
 go run examples/colors/main.go
 go run examples/transparency/main.go
+go run examples/stack/main.go
+OVERLAY_DEV=1 go run examples/stack/main.go
+go run examples/v2simple/main.go
 ```
+
+---
+
+## Gallery
+
+| Confirm | Form | Spinner | Colors | Nested stack | Transparency |
+| :---: | :---: | :---: | :---: | :---: | :---: |
+| ![Confirm](screenshots/confirm.gif) | ![Form](screenshots/form.gif) | ![Spinner](screenshots/spinner.gif) | ![Colors](screenshots/colors.gif) | ![Stack](screenshots/stack.gif) | ![Transparency](screenshots/transparency.gif) |
+
+---
 
 ## Recording GIFs (VHS)
 
-Lipgloss uses [termenv](https://github.com/muesli/termenv) to decide whether to emit ANSI. If the **`CI`** environment variable is set (typical in GitHub Actions and some local tools), termenv assumes there is no TTY and switches to the **ASCII** color profile, so **all styles are stripped** — your GIF will look monochrome even though the app is colorful in a normal terminal. The same happens if **`NO_COLOR`** is set.
+Use **`make gifs`** from the repo root. Tapes **`Source "vhs/_env.tape"`**, which clears **`CI`** / **`NO_COLOR`** and sets **`TERM=xterm-256color`** and **`COLORTERM=truecolor`** so lipgloss/termenv emit color ([termenv](https://github.com/muesli/termenv) otherwise assumes no TTY when `CI` is set).
 
-Tapes in `vhs/` **`Source "vhs/_env.tape"`**, which clears those variables and sets **`TERM=xterm-256color`** and **`COLORTERM=truecolor`** so recordings include color. Run VHS from the **repository root** (as `make gifs` does) so the source path resolves.
-
-Each tape runs **`go mod download`** inside **`Hide`** before **`go run ./examples/...`**. Otherwise Go prints `go: downloading …` lines (especially after new dependencies land) and VHS captures them at the start of the GIF.
+Each tape runs **`go mod download`** inside **`Hide`** before **`go run ./examples/...`** so download lines do not appear in the GIF.

@@ -8,15 +8,56 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	overlay "github.com/madicen/bubble-overlay"
+	ov "github.com/madicen/bubble-overlay"
 )
 
-type model struct {
-	mainView  string
-	showModal bool
+type dismissConfirmMsg struct{}
+
+type rootModel struct {
+	mainView string
+	stack    ov.OverlayStack
+	width    int
+	height   int
+}
+
+type confirmModal struct {
 	confirmed bool
-	width     int
-	height    int
+}
+
+func (m confirmModal) Init() tea.Cmd { return nil }
+
+func (m confirmModal) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch {
+		case key.Matches(msg, keys.Yes):
+			if !m.confirmed {
+				return confirmModal{confirmed: true}, nil
+			}
+		case key.Matches(msg, keys.No):
+			return m, func() tea.Msg { return dismissConfirmMsg{} }
+		case msg.Type == tea.KeyEsc || msg.Type == tea.KeyEscape:
+			return m, func() tea.Msg { return dismissConfirmMsg{} }
+		case key.Matches(msg, keys.Show):
+			return m, func() tea.Msg { return dismissConfirmMsg{} }
+		}
+	}
+	return m, nil
+}
+
+func (m confirmModal) View() string {
+	var content string
+	if m.confirmed {
+		content = "You confirmed!\n\n(space to close)"
+	} else {
+		content = "Are you sure?\n\nYes (y) / No (n)"
+	}
+	return lipgloss.NewStyle().
+		Width(30).
+		Align(lipgloss.Center).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("63")).
+		Render(content)
 }
 
 type keyMap struct {
@@ -28,12 +69,12 @@ type keyMap struct {
 
 var keys = keyMap{
 	Quit: key.NewBinding(
-		key.WithKeys("q", "ctrl+c", "esc"),
+		key.WithKeys("q", "ctrl+c"),
 		key.WithHelp("q", "quit"),
 	),
 	Show: key.NewBinding(
 		key.WithKeys(" "),
-		key.WithHelp("space", "show modal"),
+		key.WithHelp("space", "show / hide modal"),
 	),
 	Yes: key.NewBinding(
 		key.WithKeys("y"),
@@ -45,80 +86,54 @@ var keys = keyMap{
 	),
 }
 
-func (m model) Init() tea.Cmd {
-	return nil
-}
+func (m rootModel) Init() tea.Cmd { return nil }
 
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case dismissConfirmMsg:
+		var c tea.Cmd
+		if m.stack.Depth() > 0 {
+			_, c = m.stack.Pop()
+		}
+		return m, c
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		return m, m.stack.Update(msg)
 	case tea.KeyMsg:
-		if m.showModal && !m.confirmed {
-			switch {
-			case key.Matches(msg, keys.Yes):
-				m.confirmed = true
-				return m, nil
-			case key.Matches(msg, keys.No):
-				m.confirmed = false
-				m.showModal = false
-				return m, nil
-			}
-		}
-		switch {
-		case key.Matches(msg, keys.Quit):
+		if key.Matches(msg, keys.Quit) {
 			return m, tea.Quit
-		case key.Matches(msg, keys.Show):
-			m.showModal = !m.showModal
-			if m.showModal {
-				m.confirmed = false
-			}
-			return m, nil
+		}
+		if !m.stack.MainReceivesKeyMsg() {
+			return m, m.stack.Update(msg)
+		}
+		if key.Matches(msg, keys.Show) {
+			cfg := ov.DefaultOverlayConfig()
+			cfg.CloseOnEscape = false
+			return m, m.stack.Push(confirmModal{}, cfg)
+		}
+		if msg.Type == tea.KeyEsc || msg.Type == tea.KeyEscape {
+			return m, tea.Quit
 		}
 	}
 	return m, nil
 }
 
-func (m model) View() string {
+func (m rootModel) View() string {
 	w, h := m.width, m.height
 	if w == 0 || h == 0 {
 		w, h = 80, 25
 	}
-
-	if !m.showModal {
-		return m.mainView
-	}
-
-	var content string
-	if m.confirmed {
-		content = "You confirmed!"
-	} else {
-		question := "Are you sure?"
-		yes := "Yes (y)"
-		no := "No (n)"
-		content = fmt.Sprintf("%s %s / %s", question, yes, no)
-	}
-
-	modal := lipgloss.NewStyle().
-		Width(30).
-		Align(lipgloss.Center).
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("63")).
-		Render(content)
-
-	return overlay.OverlayViewInCenter(m.mainView, modal, w, h)
+	return m.stack.View(m.mainView, w, h)
 }
 
 func main() {
-	const s = "This is the main view. Press the spacebar to show the modal."
+	const s = "Press space for the modal."
 	var lines []string
 	for i := range 19 {
 		lines = append(lines, fmt.Sprintf("%-4d %s", i, s))
 	}
-	m := model{
-		mainView: strings.Join(lines, "\n"),
-	}
+	m := rootModel{mainView: strings.Join(lines, "\n")}
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Println("Error running program:", err)
