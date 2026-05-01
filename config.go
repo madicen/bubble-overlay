@@ -26,6 +26,10 @@ func Fixed(top, left int) Placement {
 	return Placement{kind: placementFixed, fixedTop: top, fixedLeft: left}
 }
 
+// Origin returns the placement anchor before OverlayView overflow clamping: negative top/left are
+// pinned to 0, but if the modal is wider or taller than the viewport the origin is not shifted
+// until compositing—use ClampedOrigin or ClampOverlayOrigin for coordinates that must match painting
+// (e.g. mouse hit-testing).
 func (p Placement) Origin(modalW, modalH, viewW, viewH int) (top, left int) {
 	switch p.kind {
 	case placementCenter:
@@ -44,6 +48,13 @@ func (p Placement) Origin(modalW, modalH, viewW, viewH int) (top, left int) {
 		left = 0
 	}
 	return top, left
+}
+
+// ClampedOrigin returns Origin followed by the same overflow clamp as OverlayView. Use this when
+// forwarding tea.MouseMsg or storing overlay bounds so geometry matches the compositor.
+func (p Placement) ClampedOrigin(modalW, modalH, viewW, viewH int) (top, left int) {
+	t, l := p.Origin(modalW, modalH, viewW, viewH)
+	return ClampOverlayOrigin(modalW, modalH, viewW, viewH, t, l)
 }
 
 type OverlayConfig struct {

@@ -99,6 +99,20 @@ func TestModalStackIntegrity_click_outside_pops(t *testing.T) {
 	}
 }
 
+func TestModalStackIntegrity_click_inside_clamped_wide_modal(t *testing.T) {
+	var s Stack
+	cfg := bov.DefaultOverlayConfig()
+	cfg.CloseOnClickOutside = true
+	cfg.Placement = bov.Fixed(5, 5)
+	cfg.DimOpacity = 0
+	s.Push(staticV2{view: strings.Repeat("M", 40)}, cfg)
+	s.Update(tea.WindowSizeMsg{Width: 30, Height: 20})
+	s.Update(tea.MouseClickMsg{X: 2, Y: 5, Button: tea.MouseLeft})
+	if s.Depth() != 1 {
+		t.Fatalf("click on modal after horizontal clamp: depth %d", s.Depth())
+	}
+}
+
 func TestOverlayStability_line_count_after_resize(t *testing.T) {
 	main := strings.Repeat("M", 40)
 	base := strings.Join([]string{main, main, main, main}, "\n")

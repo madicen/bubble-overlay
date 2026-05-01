@@ -5,6 +5,9 @@
 // declarative placement (OverlayConfig), Escape / click-outside dismissal, and
 // focus-trapped updates (see OverlayStack.MainReceivesKeyMsg and FocusTrap).
 //
+// Hosts that forward mouse events should use ClampOverlayOrigin or Placement.ClampedOrigin
+// so hit-testing matches OverlayView; see README “Consumer integration”.
+//
 // For Bubble Tea v2 (charm.land/bubbletea/v2), use import path
 // github.com/madicen/bubble-overlay/v2 (package overlayv2). See docs/ADR-v2-bridge.md.
 
@@ -59,6 +62,23 @@ func OverlayViewWithMask(mainView, modalView string, viewWidth, viewHeight, top,
 	return overlayViewInternal(mainView, modalView, viewWidth, viewHeight, top, left, mergeMaskRune, maskRune)
 }
 
+// ClampOverlayOrigin applies the same origin adjustment as OverlayView: if the modal rectangle
+// would extend past the viewport edge, top and/or left are shifted so the rectangle fits; then
+// negative coordinates are clamped to zero.
+//
+// modalW and modalH must match how OverlayView measures that modal string (see ModalCellSize).
+func ClampOverlayOrigin(modalW, modalH, viewW, viewH, top, left int) (int, int) {
+	if left+modalW > viewW {
+		left = max(0, viewW-modalW)
+	}
+	left = max(left, 0)
+	if top+modalH > viewH {
+		top = max(0, viewH-modalH)
+	}
+	top = max(top, 0)
+	return top, left
+}
+
 func overlayViewInternal(mainView, modalView string, viewWidth, viewHeight, top, left int, kind overlayMergeKind, maskRune rune) string {
 	mainLines := strings.Split(mainView, "\n")
 	modalLines := strings.Split(modalView, "\n")
@@ -80,14 +100,7 @@ func overlayViewInternal(mainView, modalView string, viewWidth, viewHeight, top,
 			modalW = w
 		}
 	}
-	if left+modalW > viewWidth {
-		left = max(0, viewWidth-modalW)
-	}
-	left = max(left, 0)
-	if top+modalH > viewHeight {
-		top = max(0, viewHeight-modalH)
-	}
-	top = max(top, 0)
+	top, left = ClampOverlayOrigin(modalW, modalH, viewWidth, viewHeight, top, left)
 
 	var out []string
 	for row := range viewHeight {

@@ -6,20 +6,18 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// ModalCellSize matches overlayViewInternal: strings.Split on "\n" (no TrimSuffix),
+// height = line count, width = max lipgloss.Width per line.
 func ModalCellSize(modal string) (w, h int) {
-	modal = strings.TrimSuffix(modal, "\n")
 	lines := strings.Split(modal, "\n")
-	h = len(lines)
-	if h == 0 {
-		h = 1
+	if len(lines) == 0 {
+		return 0, 0
 	}
+	h = len(lines)
 	for _, line := range lines {
 		if lw := lipgloss.Width(line); lw > w {
 			w = lw
 		}
-	}
-	if w == 0 {
-		w = 1
 	}
 	return w, h
 }

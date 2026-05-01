@@ -91,7 +91,7 @@ func (s *Stack) topLayout(viewW, viewH int) (top, left, mw, mh int) {
 	ent := s.entries[len(s.entries)-1]
 	modal := ViewString(ent.model.View())
 	mw, mh = layout.ModalCellSize(modal)
-	top, left = ent.cfg.Placement.Origin(mw, mh, viewW, viewH)
+	top, left = ent.cfg.Placement.ClampedOrigin(mw, mh, viewW, viewH)
 	return top, left, mw, mh
 }
 

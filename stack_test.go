@@ -104,6 +104,24 @@ func TestOverlayStack_click_outside_pops(t *testing.T) {
 	}
 }
 
+func TestOverlayStack_click_inside_uses_clamped_origin_wide_modal(t *testing.T) {
+	// Modal wider than viewport: Origin leaves left=5 but OverlayView clamps to 0.
+	// Hit-testing must use ClampedOrigin so a click on the painted left edge counts as inside.
+	var s OverlayStack
+	cfg := DefaultOverlayConfig()
+	cfg.CloseOnClickOutside = true
+	cfg.Placement = Fixed(5, 5)
+	cfg.DimOpacity = 0
+	s.Push(staticModel{view: strings.Repeat("M", 40)}, cfg)
+	s.Update(tea.WindowSizeMsg{Width: 30, Height: 20})
+	s.Update(tea.MouseMsg{
+		X: 2, Y: 5, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft,
+	})
+	if s.Depth() != 1 {
+		t.Fatalf("click on painted modal should not pop, depth=%d", s.Depth())
+	}
+}
+
 func TestOverlayStack_pop_invokes_OnOverlayClose(t *testing.T) {
 	var closed bool
 	var s OverlayStack
