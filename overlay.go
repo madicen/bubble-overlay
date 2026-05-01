@@ -119,11 +119,16 @@ func overlayViewInternal(mainView, modalView string, viewWidth, viewHeight, top,
 	return strings.Join(out, "\n")
 }
 
-// OverlayViewInCenter is a helper that calculates the coordinates to center modalView
-// within the available terminal area defined by viewWidth and viewHeight, then
-// returns the result of OverlayView.
+// OverlayViewInCenter centers modalView in a viewport of viewWidth×viewHeight and composites with OverlayView.
+// The viewport may be the full terminal, a tab/content region, or any rectangle you pass to OverlayView—this is
+// the general “center in viewport” helper, not full-screen-only.
+//
+// When the background is not the entire terminal, pass the same width and height you use for that region.
+// If the region matches the main view’s cell bounds, use ModalCellSize(mainView) or OverlayViewInCenterInMain.
+//
+// Centering uses ModalCellSize(modalView), matching OverlayView’s internal modal measurement (not lipgloss.Size).
 func OverlayViewInCenter(mainView, modalView string, viewWidth, viewHeight int) string {
-	modalW, modalH := lipgloss.Size(modalView)
+	modalW, modalH := ModalCellSize(modalView)
 	top := (viewHeight - modalH) / 2
 	left := (viewWidth - modalW) / 2
 	return OverlayView(mainView, modalView, viewWidth, viewHeight, top, left)
@@ -131,7 +136,7 @@ func OverlayViewInCenter(mainView, modalView string, viewWidth, viewHeight int) 
 
 // OverlayViewInCenterWithTransparency is like OverlayViewInCenter but uses OverlayViewWithTransparency.
 func OverlayViewInCenterWithTransparency(mainView, modalView string, viewWidth, viewHeight int) string {
-	modalW, modalH := lipgloss.Size(modalView)
+	modalW, modalH := ModalCellSize(modalView)
 	top := (viewHeight - modalH) / 2
 	left := (viewWidth - modalW) / 2
 	return OverlayViewWithTransparency(mainView, modalView, viewWidth, viewHeight, top, left)
@@ -139,10 +144,17 @@ func OverlayViewInCenterWithTransparency(mainView, modalView string, viewWidth, 
 
 // OverlayViewInCenterWithMask is like OverlayViewInCenter but uses OverlayViewWithMask.
 func OverlayViewInCenterWithMask(mainView, modalView string, viewWidth, viewHeight int, maskRune rune) string {
-	modalW, modalH := lipgloss.Size(modalView)
+	modalW, modalH := ModalCellSize(modalView)
 	top := (viewHeight - modalH) / 2
 	left := (viewWidth - modalW) / 2
 	return OverlayViewWithMask(mainView, modalView, viewWidth, viewHeight, top, left, maskRune)
+}
+
+// OverlayViewInCenterInMain derives the viewport size from ModalCellSize(mainView) and centers modalView over mainView.
+// Use when the overlay applies to exactly the main string’s cell bounds (e.g. an inner panel or log region).
+func OverlayViewInCenterInMain(mainView, modalView string) string {
+	viewW, viewH := ModalCellSize(mainView)
+	return OverlayViewInCenter(mainView, modalView, viewW, viewH)
 }
 
 func overlayLine(mainLine, modalLine string, left, modalW, viewWidth int, kind overlayMergeKind, maskRune rune) string {
