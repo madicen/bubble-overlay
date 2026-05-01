@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -134,17 +133,13 @@ func TestOverlayView_opaqueIsTrulyOpaque(t *testing.T) {
 }
 
 func TestOverlayViewWithMask_resetsBackgroundWhenModalOmitsBG(t *testing.T) {
-	mainRow := lipgloss.NewStyle().
-		Background(lipgloss.Color("236")).
-		Foreground(lipgloss.Color("252")).
-		Width(40).
-		Render(strings.Repeat("x", 40))
-	modal := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("201")).
-		Render("Hello")
+	// Explicit SGR: lipgloss may omit colors without a TTY (CI), which would skip this path entirely.
+	mainRow := "\x1b[48;5;236m\x1b[38;5;252m" + strings.Repeat("x", 40) + "\x1b[0m"
+	modal := "\x1b[38;5;201mHello" // foreground only, no explicit background
 	out := OverlayViewWithMask(mainRow, modal, 40, 1, 0, 10, '\ufffc')
-	if !strings.Contains(out, "\x1b[49m") {
-		t.Fatalf("expected \\033[49m when painting FG-only modal after main BG (got %q)", out)
+	// renderLine uses DiffSequence so default background is set; x/ansi may emit 49 alone or with fg (e.g. "...;49m").
+	if !strings.Contains(out, "\x1b[49m") && !strings.Contains(out, ";49m") {
+		t.Fatalf("expected SGR 49 (default background) when painting FG-only modal after main BG (got %q)", out)
 	}
 }
 
