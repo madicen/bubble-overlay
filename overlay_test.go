@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -129,6 +130,21 @@ func TestOverlayView_opaqueIsTrulyOpaque(t *testing.T) {
 	want := "AA  MM  AA"
 	if stripped != want {
 		t.Errorf("opaque overlay: want %q, got %q", want, stripped)
+	}
+}
+
+func TestOverlayViewWithMask_resetsBackgroundWhenModalOmitsBG(t *testing.T) {
+	mainRow := lipgloss.NewStyle().
+		Background(lipgloss.Color("236")).
+		Foreground(lipgloss.Color("252")).
+		Width(40).
+		Render(strings.Repeat("x", 40))
+	modal := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("201")).
+		Render("Hello")
+	out := OverlayViewWithMask(mainRow, modal, 40, 1, 0, 10, '\ufffc')
+	if !strings.Contains(out, "\x1b[49m") {
+		t.Fatalf("expected \\033[49m when painting FG-only modal after main BG (got %q)", out)
 	}
 }
 
