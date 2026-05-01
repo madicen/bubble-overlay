@@ -85,12 +85,33 @@ Helpers **`OverlayViewInCenter`**, **`OverlayViewInCenterWithTransparency`**, an
 
 ---
 
+## Consumer integration (`OverlayView` hosts)
+
+**Single source of truth.** Overflow clamping (when the modal is wider or taller than the viewport) is implemented once as **`ClampOverlayOrigin`** and used by **`OverlayView`**. Hosts that duplicate placement logic for hit-testing should call **`ClampOverlayOrigin`** or **`Placement.ClampedOrigin`** with the same `modalW`, `modalH`, `viewW`, and `viewH` they use for compositing—do not reimplement the algorithm.
+
+**Placement.** **`Placement.Origin`** returns coordinates *before* that overflow clamp (it only pins negative top/left to zero). **`Placement.ClampedOrigin`** matches what **`OverlayView`** paints. Use **`ClampedOrigin`** (or **`Origin`** plus **`ClampOverlayOrigin`**) whenever coordinates must align with the compositor.
+
+**Hit-testing.** If you forward **`tea.MouseMsg`** (or v2 mouse messages) and compare against a stored overlay rectangle, that rectangle must use **post-clamp** top/left; comparing against pre-clamp “desired” placement will be wrong when the modal overflows the viewport.
+
+**Coordinates.** **`OverlayView`** top/left are **zero-based** row and column offsets from the top-left of the view string. Bubble Tea v1 **`tea.MouseMsg`** **`X`** and **`Y`** use the same **zero-based** cell indexing, so they align directly with **`ClampOverlayOrigin`** / **`CellInModal`**. For Bubble Tea v2, use the **`X` / `Y`** from the underlying mouse event the same way once your pipeline uses the same width/height as compositing.
+
+**Helpers.** **`ModalCellSize`** and **`CellInModal`** are thin exports over the same helpers used by **`OverlayStack`** for modal bounds and inside/outside checks.
+
+**Behavioral note (sizing).** Modal width/height follow **`strings.Split(modal, "\n")`** and max **`lipgloss.Width`** per line (matching **`OverlayView`**), not a trimmed trailing newline. If you change that measurement in the compositor, update **`internal/layout.ModalCellSize`** and release notes accordingly.
+
+### Checklist when changing the compositor
+
+Before merging overlay geometry or merge behavior changes: exercise **resize**, **modal larger than the terminal**, **mouse inside vs outside** the modal, and **zones vs relative coordinates** if your app uses them. Call out **breaking behavioral changes** in release notes (this repo has no auto-generated changelog—document in your release).
+
+---
+
 ## Package reference
 
 | Symbol | Package | Role |
 |--------|---------|------|
 | `OverlayView`, `OverlayViewWithTransparency`, `OverlayViewWithMask`, `DimSurface` | `overlay` | Hole-punch compositing; dim multiline string. |
-| `OverlayConfig`, `Placement` | `overlay` | Per-frame dimming and anchor. |
+| `ClampOverlayOrigin`, `ModalCellSize`, `CellInModal` | `overlay` | Shared geometry for compositor parity and hit-testing. |
+| `OverlayConfig`, `Placement`, `Placement.ClampedOrigin` | `overlay` | Per-frame dimming and anchor. |
 | `OverlayStack`, `OverlayOnCloser`, `FocusTrap`, `DevStackDepthFooter` | `overlay` | v1 stack and helpers. |
 | `Stack`, `ViewAdapter`, `StringPipelineAdapter`, `ViewString` | `overlayv2` | v2 stack + R1 compositor. |
 

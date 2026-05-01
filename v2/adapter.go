@@ -24,7 +24,7 @@ func (StringPipelineAdapter) Adapt(base string, frames []FrameView, w, h int) te
 			cur = bov.DimSurface(cur, fr.Cfg.DimOpacity)
 		}
 		mw, mh := layout.ModalCellSize(fr.Modal)
-		top, left := fr.Cfg.Placement.Origin(mw, mh, w, h)
+		top, left := fr.Cfg.Placement.ClampedOrigin(mw, mh, w, h)
 		cur = bov.OverlayView(cur, fr.Modal, w, h, top, left)
 	}
 	return tea.NewView(cur)
