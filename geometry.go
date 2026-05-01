@@ -10,6 +10,12 @@ func ClampOverlayOriginAtPoint(modal string, viewW, viewH, top, left int) (int, 
 	return ClampOverlayOrigin(mw, mh, viewW, viewH, top, left)
 }
 
+// ClampMenuOrigin is an alias for ClampOverlayOriginAtPoint: same implementation, for call sites that anchor
+// a menu or popover at a cursor cell (typically tea.MouseMsg.Y as top, tea.MouseMsg.X as left).
+func ClampMenuOrigin(modal string, viewW, viewH, anchorTop, anchorLeft int) (int, int) {
+	return ClampOverlayOriginAtPoint(modal, viewW, viewH, anchorTop, anchorLeft)
+}
+
 // ModalCellSize returns display-cell width (max per line) and line count for a modal string,
 // using the same rules as OverlayView when measuring the modal for placement and clamping.
 func ModalCellSize(modal string) (w, h int) {

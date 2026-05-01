@@ -85,9 +85,26 @@ Run **`go run examples/v2simple/main.go`**. Use **`overlayv2.FocusTrap`** like v
 
 Centering helpers measure the modal with **`ModalCellSize`** (same rules as **`OverlayView`**), not **`lipgloss.Size`**, so placement and hit-testing stay aligned.
 
-Context menus: anchor at mouse row/column with **`ClampOverlayOriginAtPoint(modal, viewW, viewH, top, left)`**, then composite with **`OverlayView`** at the returned origin and test hits with **`CellInModal`** using the same origin and **`ModalCellSize(modal)`**.
+Context menus: use **`OverlayViewAtPoint(main, modal, viewW, viewH, anchorTop, anchorLeft)`** (clamp + composite in one step), or **`ClampOverlayOriginAtPoint`** / **`ClampMenuOrigin`** + **`OverlayView`**. Test hits with **`CellInModal`** using post-clamp top/left and **`ModalCellSize(modal)`**.
 
-Helpers **`OverlayViewInCenter`**, **`OverlayViewInCenterWithTransparency`**, **`OverlayViewInCenterWithMask`**, and **`OverlayViewInCenterInMain`** center the modal then composite.
+For “centered but nudged” (e.g. loading line above a label), use **`OverlayViewInCenterWithOffset`** (and transparency/mask variants): offsets apply after centering, then **`OverlayView`** clamps.
+
+Helpers **`OverlayViewInCenter*`**, **`OverlayViewInCenterInMain`**, **`OverlayViewAtPoint*`**, and **`OverlayViewInCenterWithOffset*`** cover common layouts.
+
+### Cookbook
+
+**Full-screen vs inner panel.** Use **`WindowSizeMsg`** width/height as **`viewW` / `viewH`** when the main view fills the terminal. When the overlay sits only over a panel whose string is exactly **`main`**, use **`OverlayViewInCenterInMain(main, modal)`** or **`ModalCellSize(main)`** with **`OverlayViewInCenter`** so the viewport matches the panel grid.
+
+**Menu under cursor (v1 mouse).** Coordinates are **zero-based**. **`tea.MouseMsg`** uses **`X`** = column (left) and **`Y`** = row (top)—same order as **`OverlayView(..., top, left)`** arguments only if you pass **`anchorTop = msg.Y`** and **`anchorLeft = msg.X`** (row first, then column). Example:
+
+```go
+out := overlay.OverlayViewAtPoint(base, menu, w, h, msg.Y, msg.X)
+t, l := overlay.ClampMenuOrigin(menu, w, h, msg.Y, msg.X)
+mw, mh := overlay.ModalCellSize(menu)
+inside := overlay.CellInModal(msg.X, msg.Y, t, l, mw, mh)
+```
+
+**Stack vs raw compositing.** Prefer **`OverlayStack`** / **`Placement`** when you want **dimming**, **Escape / click-outside**, **nested modals**, and **focus routing** (`FocusTrap`). Use **`OverlayView`** (and helpers) when you only need a **single hole punch** or fully custom update routing.
 
 ---
 
@@ -116,8 +133,8 @@ Before merging overlay geometry or merge behavior changes: exercise **resize**, 
 | Symbol | Package | Role |
 |--------|---------|------|
 | `OverlayView`, `OverlayViewWithTransparency`, `OverlayViewWithMask`, `DimSurface` | `overlay` | Hole-punch compositing; dim multiline string. |
-| `ClampOverlayOrigin`, `ClampOverlayOriginAtPoint`, `ModalCellSize`, `CellInModal` | `overlay` | Shared geometry for compositor parity and hit-testing. |
-| `OverlayViewInCenter`, `OverlayViewInCenterInMain`, … | `overlay` | Centered overlays using **`ModalCellSize`** for modal bounds. |
+| `ClampOverlayOrigin`, `ClampOverlayOriginAtPoint`, `ClampMenuOrigin`, `ModalCellSize`, `CellInModal` | `overlay` | Shared geometry for compositor parity and hit-testing. |
+| `OverlayViewInCenter*`, `OverlayViewInCenterInMain`, `OverlayViewInCenterWithOffset*`, `OverlayViewAtPoint*` | `overlay` | Common centered, offset, and anchored layouts. |
 | `OverlayConfig`, `Placement`, `Placement.ClampedOrigin` | `overlay` | Per-frame dimming and anchor. |
 | `OverlayStack`, `OverlayOnCloser`, `FocusTrap`, `DevStackDepthFooter` | `overlay` | v1 stack and helpers. |
 | `Stack`, `ViewAdapter`, `StringPipelineAdapter`, `ViewString` | `overlayv2` | v2 stack + R1 compositor. |

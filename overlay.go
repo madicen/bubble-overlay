@@ -157,6 +157,50 @@ func OverlayViewInCenterInMain(mainView, modalView string) string {
 	return OverlayViewInCenter(mainView, modalView, viewW, viewH)
 }
 
+// OverlayViewInCenterWithOffset centers modalView, adds deltaTop and deltaLeft (e.g. nudge a loading banner upward),
+// then composites. Overflow clamping matches OverlayView (applied inside OverlayView).
+func OverlayViewInCenterWithOffset(mainView, modalView string, viewWidth, viewHeight, deltaTop, deltaLeft int) string {
+	modalW, modalH := ModalCellSize(modalView)
+	top := (viewHeight-modalH)/2 + deltaTop
+	left := (viewWidth-modalW)/2 + deltaLeft
+	return OverlayView(mainView, modalView, viewWidth, viewHeight, top, left)
+}
+
+// OverlayViewInCenterWithOffsetWithTransparency is like OverlayViewInCenterWithOffset but uses OverlayViewWithTransparency.
+func OverlayViewInCenterWithOffsetWithTransparency(mainView, modalView string, viewWidth, viewHeight, deltaTop, deltaLeft int) string {
+	modalW, modalH := ModalCellSize(modalView)
+	top := (viewHeight-modalH)/2 + deltaTop
+	left := (viewWidth-modalW)/2 + deltaLeft
+	return OverlayViewWithTransparency(mainView, modalView, viewWidth, viewHeight, top, left)
+}
+
+// OverlayViewInCenterWithOffsetWithMask is like OverlayViewInCenterWithOffset but uses OverlayViewWithMask.
+func OverlayViewInCenterWithOffsetWithMask(mainView, modalView string, viewWidth, viewHeight, deltaTop, deltaLeft int, maskRune rune) string {
+	modalW, modalH := ModalCellSize(modalView)
+	top := (viewHeight-modalH)/2 + deltaTop
+	left := (viewWidth-modalW)/2 + deltaLeft
+	return OverlayViewWithMask(mainView, modalView, viewWidth, viewHeight, top, left, maskRune)
+}
+
+// OverlayViewAtPoint composites modalView with its top-left anchored at (anchorTop, anchorLeft) after the same
+// overflow clamp as OverlayView. Use Bubble Tea v1 mouse coordinates as anchorTop = msg.Y (row) and anchorLeft = msg.X (column).
+func OverlayViewAtPoint(mainView, modalView string, viewWidth, viewHeight, anchorTop, anchorLeft int) string {
+	top, left := ClampOverlayOriginAtPoint(modalView, viewWidth, viewHeight, anchorTop, anchorLeft)
+	return OverlayView(mainView, modalView, viewWidth, viewHeight, top, left)
+}
+
+// OverlayViewAtPointWithTransparency is like OverlayViewAtPoint but uses OverlayViewWithTransparency.
+func OverlayViewAtPointWithTransparency(mainView, modalView string, viewWidth, viewHeight, anchorTop, anchorLeft int) string {
+	top, left := ClampOverlayOriginAtPoint(modalView, viewWidth, viewHeight, anchorTop, anchorLeft)
+	return OverlayViewWithTransparency(mainView, modalView, viewWidth, viewHeight, top, left)
+}
+
+// OverlayViewAtPointWithMask is like OverlayViewAtPoint but uses OverlayViewWithMask.
+func OverlayViewAtPointWithMask(mainView, modalView string, viewWidth, viewHeight, anchorTop, anchorLeft int, maskRune rune) string {
+	top, left := ClampOverlayOriginAtPoint(modalView, viewWidth, viewHeight, anchorTop, anchorLeft)
+	return OverlayViewWithMask(mainView, modalView, viewWidth, viewHeight, top, left, maskRune)
+}
+
 func overlayLine(mainLine, modalLine string, left, modalW, viewWidth int, kind overlayMergeKind, maskRune rune) string {
 	if kind == mergeOpaque {
 		prefix := prefixCells(mainLine, left)
@@ -223,7 +267,12 @@ func renderLine(buf *cellbuf.Buffer, width int) string {
 			if c.Style.Empty() {
 				b.WriteString(ansi.ResetStyle)
 			} else {
-				b.WriteString(c.Style.Sequence())
+				// DiffSequence updates the active pen from curStyle so omitted attributes
+				// (e.g. no Bg on modal lipgloss text) reset attributes left over from the
+				// previous cell — Sequence() alone does not emit \033[49m, so main-layer
+				// backgrounds could bleed across overlay merges (issue seen when the
+				// speech bubble overlaps the styled status row).
+				b.WriteString(c.Style.DiffSequence(curStyle))
 			}
 			curStyle = c.Style
 		}

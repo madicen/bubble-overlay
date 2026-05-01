@@ -50,6 +50,42 @@ func TestClampOverlayOriginAtPoint_matches_ModalCellSize_plus_clamp(t *testing.T
 	}
 }
 
+func TestClampMenuOrigin_matches_ClampOverlayOriginAtPoint(t *testing.T) {
+	modal := "a\nb"
+	vw, vh := 50, 20
+	for _, tc := range []struct{ top, left int }{{0, 0}, {3, 10}, {-2, 99}} {
+		a, b := ClampMenuOrigin(modal, vw, vh, tc.top, tc.left)
+		c, d := ClampOverlayOriginAtPoint(modal, vw, vh, tc.top, tc.left)
+		if a != c || b != d {
+			t.Fatalf("MenuOrigin (%d,%d) vs AtPoint (%d,%d)", a, b, c, d)
+		}
+	}
+}
+
+func TestOverlayViewAtPoint_matches_clamp_plus_OverlayView(t *testing.T) {
+	main := "....\n....\n"
+	modal := "XX"
+	vw, vh := 4, 3
+	top, left := 1, 1
+	got := OverlayViewAtPoint(main, modal, vw, vh, top, left)
+	tCl, lCl := ClampOverlayOriginAtPoint(modal, vw, vh, top, left)
+	want := OverlayView(main, modal, vw, vh, tCl, lCl)
+	if got != want {
+		t.Fatalf("AtPoint vs manual overlay")
+	}
+}
+
+func TestOverlayViewInCenterWithOffset_zero_delta_matches_InCenter(t *testing.T) {
+	main := strings.Repeat("-", 20) + "\n" + strings.Repeat("-", 20)
+	modal := "hi"
+	vw, vh := 20, 2
+	a := OverlayViewInCenterWithOffset(main, modal, vw, vh, 0, 0)
+	b := OverlayViewInCenter(main, modal, vw, vh)
+	if a != b {
+		t.Fatalf("offset 0 should match InCenter")
+	}
+}
+
 func TestOverlayViewInCenterInMain_matches_explicit_viewport(t *testing.T) {
 	main := "hello\nworld\n"
 	modal := "(.)"
