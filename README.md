@@ -81,7 +81,13 @@ Run **`go run examples/v2simple/main.go`**. Use **`overlayv2.FocusTrap`** like v
 - **`OverlayViewWithTransparency`**: ASCII space (`' '`) in the modal is treated as transparent so the main view shows through at those cells.
 - **`OverlayViewWithMask`**: choose a **mask rune** (e.g. `░`); only those cells pass through to the main view — see **`examples/transparency`**.
 
-Helpers **`OverlayViewInCenter`**, **`OverlayViewInCenterWithTransparency`**, and **`OverlayViewInCenterWithMask`** center the modal then composite.
+**Centering.** **`OverlayViewInCenter(main, modal, viewW, viewH)`** centers the modal in an arbitrary viewport—full terminal, tab strip, or panel—not “full screen only”. Pass the same **`viewW` / `viewH`** you use when compositing that region. When the region’s bounds match the main string’s grid, use **`ModalCellSize(main)`** for **`viewW` / `viewH`**, or call **`OverlayViewInCenterInMain(main, modal)`** which does that for you.
+
+Centering helpers measure the modal with **`ModalCellSize`** (same rules as **`OverlayView`**), not **`lipgloss.Size`**, so placement and hit-testing stay aligned.
+
+Context menus: anchor at mouse row/column with **`ClampOverlayOriginAtPoint(modal, viewW, viewH, top, left)`**, then composite with **`OverlayView`** at the returned origin and test hits with **`CellInModal`** using the same origin and **`ModalCellSize(modal)`**.
+
+Helpers **`OverlayViewInCenter`**, **`OverlayViewInCenterWithTransparency`**, **`OverlayViewInCenterWithMask`**, and **`OverlayViewInCenterInMain`** center the modal then composite.
 
 ---
 
@@ -110,7 +116,8 @@ Before merging overlay geometry or merge behavior changes: exercise **resize**, 
 | Symbol | Package | Role |
 |--------|---------|------|
 | `OverlayView`, `OverlayViewWithTransparency`, `OverlayViewWithMask`, `DimSurface` | `overlay` | Hole-punch compositing; dim multiline string. |
-| `ClampOverlayOrigin`, `ModalCellSize`, `CellInModal` | `overlay` | Shared geometry for compositor parity and hit-testing. |
+| `ClampOverlayOrigin`, `ClampOverlayOriginAtPoint`, `ModalCellSize`, `CellInModal` | `overlay` | Shared geometry for compositor parity and hit-testing. |
+| `OverlayViewInCenter`, `OverlayViewInCenterInMain`, … | `overlay` | Centered overlays using **`ModalCellSize`** for modal bounds. |
 | `OverlayConfig`, `Placement`, `Placement.ClampedOrigin` | `overlay` | Per-frame dimming and anchor. |
 | `OverlayStack`, `OverlayOnCloser`, `FocusTrap`, `DevStackDepthFooter` | `overlay` | v1 stack and helpers. |
 | `Stack`, `ViewAdapter`, `StringPipelineAdapter`, `ViewString` | `overlayv2` | v2 stack + R1 compositor. |
