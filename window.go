@@ -3,16 +3,43 @@ package overlay
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// DoubleClickThreshold is the maximum wall-clock gap between two
+// chrome tab presses for the chrome handler to treat the second press
+// as a double-click. 500ms matches the OS-level default on every major
+// desktop platform, which is the gesture this feature mimics
+// (double-click title bar to minimize / maximize).
+//
+// Consumers that need a different threshold can override it via
+// LayerState.LastTabPressAt manipulation, but the constant itself is
+// intentionally hard-coded so the gesture feels uniform across apps
+// built on this library.
+const DoubleClickThreshold = 500 * time.Millisecond
 
 // CloseButtonGlyph is the close control label inside the tab.
 const CloseButtonGlyph = "[x]"
 
 // CloseButtonWidth is the display width of CloseButtonGlyph for hit-testing.
 const CloseButtonWidth = 3
+
+// MinimizeButtonGlyph is the label shown for the minimize control when the
+// window is expanded. Clicking it collapses the window down to its tab.
+const MinimizeButtonGlyph = "[-]"
+
+// RestoreButtonGlyph is the label shown in place of the minimize control
+// when the window is collapsed. Clicking it expands the body back to the
+// last content size. The two glyphs share a width so the close button to
+// their right doesn't shift between states.
+const RestoreButtonGlyph = "[+]"
+
+// MinimizeButtonWidth is the display width of MinimizeButtonGlyph (and
+// RestoreButtonGlyph — they're sized identically for layout stability).
+const MinimizeButtonWidth = 3
 
 // DefaultChromeMaskRune is the pass-through padding rune for WindowChrome
 // auto-wrap. It lives in the Unicode Private Use Area (U+E000), which is
@@ -39,25 +66,26 @@ const (
 // When Enabled is true, use EnableWindowChrome for recommended defaults, or set
 // AutoWrap, Draggable, and ShowCloseButton explicitly.
 type WindowChrome struct {
-	Enabled         bool
-	Title           string
-	ShowCloseButton bool
-	AutoWrap        bool
-	TitleBarHeight  int // legacy; tab layout uses TabOffsetTop + tab rows when zero
-	Draggable       bool
-	TabBackground   string // lipgloss color for tab fill (default muted "238")
-	TabForeground   string // lipgloss color for tab text
-	TabBorder       string // lipgloss color for tab border runes
-	TabOffsetTop    int    // rows above tab (default 1)
-	TabOffsetLeft   int    // columns left of tab (default 0)
-	ChromeMaskRune  rune   // pass-through padding in auto-wrap chrome; 0 uses DefaultChromeMaskRune
-	Resizable       bool   // drag right/bottom edges (and corner) to resize content
-	Keyboard        bool   // Alt+arrow move, Alt+Shift+arrow resize
-	KeyStep         int    // cells per keypress when Keyboard is enabled (default 1)
-	CenterContent   bool   // keep content centered in the body when Resizable
-	ContentPadTop   int    // blank lines pinned to the top of the resizable body
-	MinWidth        int    // minimum content width when Resizable
-	MinHeight       int    // minimum content height (lines) when Resizable
+	Enabled            bool
+	Title              string
+	ShowCloseButton    bool
+	ShowMinimizeButton bool   // render [-] / [+] toggle to the left of the close button
+	AutoWrap           bool
+	TitleBarHeight     int    // legacy; tab layout uses TabOffsetTop + tab rows when zero
+	Draggable          bool
+	TabBackground      string // lipgloss color for tab fill (default muted "238")
+	TabForeground      string // lipgloss color for tab text
+	TabBorder          string // lipgloss color for tab border runes
+	TabOffsetTop       int    // rows above tab (default 1)
+	TabOffsetLeft      int    // columns left of tab (default 0)
+	ChromeMaskRune     rune   // pass-through padding in auto-wrap chrome; 0 uses DefaultChromeMaskRune
+	Resizable          bool   // drag right/bottom edges (and corner) to resize content
+	Keyboard           bool   // Alt+arrow move, Alt+Shift+arrow resize
+	KeyStep            int    // cells per keypress when Keyboard is enabled (default 1)
+	CenterContent      bool   // keep content centered in the body when Resizable
+	ContentPadTop      int    // blank lines pinned to the top of the resizable body
+	MinWidth           int    // minimum content width when Resizable
+	MinHeight          int    // minimum content height (lines) when Resizable
 }
 
 // EnableWindowChrome returns a WindowChrome with tab title bar, drag, close, and auto-wrap enabled.
@@ -161,6 +189,10 @@ func (w WindowChrome) draggable() bool {
 
 func (w WindowChrome) showClose() bool {
 	return w.Enabled && w.ShowCloseButton
+}
+
+func (w WindowChrome) showMinimize() bool {
+	return w.Enabled && w.ShowMinimizeButton
 }
 
 func (w WindowChrome) resizable() bool {
@@ -291,20 +323,29 @@ const (
 	ResizeCorner
 )
 
-// ChromeRegions describes tab, close, and resize hit areas relative to the modal's top-left cell.
+// ChromeRegions describes tab, close, minimize, and resize hit areas relative to the modal's top-left cell.
 type ChromeRegions struct {
-	TabTop, TabLeft, TabW, TabH int
-	CloseX, CloseY, CloseW, CloseH int
-	ResizeRightX, ResizeRightY, ResizeRightW, ResizeRightH int
+	TabTop, TabLeft, TabW, TabH                                int
+	CloseX, CloseY, CloseW, CloseH                             int
+	MinimizeX, MinimizeY, MinimizeW, MinimizeH                 int
+	ResizeRightX, ResizeRightY, ResizeRightW, ResizeRightH     int
 	ResizeBottomX, ResizeBottomY, ResizeBottomW, ResizeBottomH int
 	ResizeCornerX, ResizeCornerY, ResizeCornerW, ResizeCornerH int
 }
 
 // ComputeChromeRegions returns hit rectangles for a framed modal's content size.
+//
+// Region positions are based on the expanded tab layout. The minimize / restore
+// buttons share a width (both glyphs are MinimizeButtonWidth), so the close
+// button's column doesn't shift between expanded and minimized states — that
+// keeps these regions valid as hit-test rects regardless of layer.Minimized.
+// Resize regions are only populated when the modal is resizable AND has a body
+// to drag against (contentH > 0); callers should additionally suppress resize
+// dispatch when the layer is currently minimized.
 func ComputeChromeRegions(wc WindowChrome, contentW, contentH int) ChromeRegions {
 	wc = wc.effective()
 	ot, ol := wc.tabOffsetTop(), wc.tabOffsetLeft()
-	inner := tabInnerText(wc.Title, wc.showClose(), contentW)
+	inner := tabInnerText(wc.Title, wc.showMinimize(), false, wc.showClose(), contentW)
 	tabW := innerWidth(inner) + 2
 	tabTop := ot
 	tabLeft := ol
@@ -317,9 +358,23 @@ func ComputeChromeRegions(wc WindowChrome, contentW, contentH int) ChromeRegions
 		CloseH:  1,
 	}
 	if wc.showClose() {
-		inner := tabInnerText(wc.Title, true, contentW)
-		reg.CloseX = tabLeft + 1 + lipgloss.Width(inner)-CloseButtonWidth
+		reg.CloseX = tabLeft + 1 + lipgloss.Width(inner) - CloseButtonWidth
 		reg.CloseY = tabTop + 1
+	}
+	if wc.showMinimize() {
+		reg.MinimizeW = MinimizeButtonWidth
+		reg.MinimizeH = 1
+		reg.MinimizeY = tabTop + 1
+		// When both buttons are shown the minimize sits exactly one
+		// space to the left of close. When only minimize is shown, it
+		// takes the close button's slot at the rightmost end of the
+		// inner text. Computing from inner width (rather than mirroring
+		// CloseX) keeps the formula correct in both cases.
+		if wc.showClose() {
+			reg.MinimizeX = reg.CloseX - MinimizeButtonWidth - 1
+		} else {
+			reg.MinimizeX = tabLeft + 1 + lipgloss.Width(inner) - MinimizeButtonWidth
+		}
 	}
 	if wc.resizable() && contentW > 0 && contentH > 0 {
 		bodyTop := ot + 2 // stacked: tab cap + tab row, then box top
@@ -400,7 +455,10 @@ func WindowFrame(content, title string, opts WindowFrameOpts) string {
 	if wc.TabOffsetLeft < 0 {
 		wc.TabOffsetLeft = defaultTabOffsetLeft
 	}
-	return renderTabFrame(content, cw, contentHeight(content), wc)
+	// WindowFrame is a static one-shot framing helper without per-layer
+	// state — minimize toggling lives on LayerState and only makes sense
+	// in the stack-driven path, so always render expanded here.
+	return renderTabFrame(content, cw, contentHeight(content), wc, false)
 }
 
 func contentWidth(content string) int {
@@ -421,26 +479,41 @@ func tabTitleText(title string, contentWidth int) string {
 	return truncateWidth(title, maxInner)
 }
 
-func tabInnerText(title string, showClose bool, contentWidth int) string {
-	if showClose {
-		prefix := " "
-		suffix := " " + CloseButtonGlyph + " "
-		maxTitle := max(0, contentWidth-lipgloss.Width(prefix+suffix))
-		t := truncateWidth(title, maxTitle)
-		return prefix + t + suffix
+func tabInnerText(title string, showMinimize, minimized, showClose bool, contentWidth int) string {
+	// Build the trailing buttons cluster: ` <minimize?> <close?> ` with a
+	// single space between every part and a trailing space inside the tab.
+	// The minimize glyph flips between MinimizeButtonGlyph and
+	// RestoreButtonGlyph based on current state; both share a width so the
+	// close button's column doesn't move as the state toggles.
+	var parts []string
+	if showMinimize {
+		glyph := MinimizeButtonGlyph
+		if minimized {
+			glyph = RestoreButtonGlyph
+		}
+		parts = append(parts, glyph)
 	}
-	t := tabTitleText(title, contentWidth)
-	return " " + t + " "
+	if showClose {
+		parts = append(parts, CloseButtonGlyph)
+	}
+	suffix := " "
+	if len(parts) > 0 {
+		suffix = " " + strings.Join(parts, " ") + " "
+	}
+	prefix := " "
+	maxTitle := max(0, contentWidth-lipgloss.Width(prefix+suffix))
+	t := truncateWidth(title, maxTitle)
+	return prefix + t + suffix
 }
 
 func innerWidth(inner string) int {
 	return lipgloss.Width(inner)
 }
 
-func renderTabFrame(content string, cw, ch int, wc WindowChrome) string {
+func renderTabFrame(content string, cw, ch int, wc WindowChrome, minimized bool) string {
 	ot, ol := wc.tabOffsetTop(), wc.tabOffsetLeft()
 	mask := wc.chromeMaskRune()
-	inner := tabInnerText(wc.Title, wc.showClose(), cw)
+	inner := tabInnerText(wc.Title, wc.showMinimize(), minimized, wc.showClose(), cw)
 	iw := innerWidth(inner)
 	tabW := iw + 2
 
@@ -454,6 +527,13 @@ func renderTabFrame(content string, cw, ch int, wc WindowChrome) string {
 		boxW = cw + 2
 	}
 	modalW := max(boxW, ol+tabW)
+	// When minimized, the window collapses to just the tab cap + tab row,
+	// so the painted width only needs to cover the tab itself. Without
+	// this, a minimized modal would still pad out to the full body width
+	// with mask runes — defeating the visual point of minimizing.
+	if minimized {
+		modalW = ol + tabW
+	}
 
 	var out []string
 
@@ -464,6 +544,17 @@ func renderTabFrame(content string, cw, ch int, wc WindowChrome) string {
 	tabTop := borderSt.Render("┌" + strings.Repeat("─", iw) + "┐")
 	tabRow := borderSt.Render("│") + tabSt.Render(inner) + borderSt.Render("│")
 	out = append(out, composeChromeLine(maskFill(ol, mask), tabTop, maskFill(max(0, modalW-ol-tabW), mask)))
+
+	if minimized {
+		// Close the tab with a flat bottom border so the strip reads as
+		// a self-contained pill: ┌────┐ / │ … │ / └────┘. We deliberately
+		// skip both the tab-on-border body cap and the resizable body /
+		// bottom border — the whole point of minimize is "show no body".
+		out = append(out, composeChromeLine(maskFill(ol, mask), tabRow, maskFill(max(0, modalW-ol-tabW), mask)))
+		tabBot := borderSt.Render("└" + strings.Repeat("─", iw) + "┘")
+		out = append(out, composeChromeLine(maskFill(ol, mask), tabBot, maskFill(max(0, modalW-ol-tabW), mask)))
+		return strings.Join(out, "\n")
+	}
 
 	if wc.resizable() && wc.tabOnBorder() {
 		out = append(out, renderTabOnBorderLine(ol, iw, cw, inner, tabSt, borderSt, mask, modalW))
@@ -600,17 +691,30 @@ func truncateWidth(s string, maxW int) string {
 
 // LayerState holds per-entry origin and drag state for window chrome.
 type LayerState struct {
-	OriginTop, OriginLeft int
-	OriginInitialized     bool
-	Dragging              bool
-	DragOffsetX           int
-	DragOffsetY           int
+	OriginTop, OriginLeft       int
+	OriginInitialized           bool
+	Dragging                    bool
+	DragOffsetX                 int
+	DragOffsetY                 int
 	ContentWidth, ContentHeight int
-	ContentSizeInitialized    bool
-	Resizing                  bool
-	ResizeEdge                ResizeEdge
-	ResizeStartX, ResizeStartY int
-	ResizeStartW, ResizeStartH int
+	ContentSizeInitialized      bool
+	Resizing                    bool
+	ResizeEdge                  ResizeEdge
+	ResizeStartX, ResizeStartY  int
+	ResizeStartW, ResizeStartH  int
+	// Minimized collapses the window to its tab strip (no body, no
+	// bottom border) when true. The window stays draggable in this
+	// state, but resize handles disappear; the minimize button glyph
+	// flips to RestoreButtonGlyph so clicking it expands the body
+	// back to its previous ContentWidth / ContentHeight.
+	Minimized bool
+	// LastTabPressAt is the wall-clock time of the most recent left-
+	// button press that landed in the tab's drag area. The chrome
+	// handler uses it to detect a double-click (two presses within
+	// DoubleClickThreshold) on the tab strip, which toggles the
+	// minimized state. Exposed so tests can simulate "the first press
+	// was N ms ago" without needing real sleeps or a clock injection.
+	LastTabPressAt time.Time
 }
 
 // ResetOrigin clears draggable origin so the next layout pass re-seeds from Placement.
@@ -650,8 +754,15 @@ func RenderEntryModal(modelView string, cfg OverlayConfig, layer *LayerState) st
 			ch = layer.ContentHeight
 		}
 	}
+	minimized := layer != nil && layer.Minimized
 	if wc.resizable() {
-		return renderTabFrame(modelView, cw, ch, wc)
+		return renderTabFrame(modelView, cw, ch, wc, minimized)
+	}
+	if minimized {
+		// Non-resizable chrome doesn't go through renderTabFrame (it
+		// uses WindowFrame, which is stateless). Route minimized layers
+		// here so the painted output still collapses to the tab strip.
+		return renderTabFrame(modelView, cw, contentHeight(modelView), wc, true)
 	}
 	return WindowFrame(modelView, wc.Title, wc.frameOpts(cw))
 }
@@ -700,6 +811,11 @@ func ReclampLayerOrigin(cfg OverlayConfig, st *LayerState, modal string, viewW, 
 type ChromeMouseResult struct {
 	Consumed bool
 	Pop      bool
+	// MinimizeToggled is set when the press flipped the layer's Minimized
+	// state. Stack callers use this to broadcast OverlayMinimizedMsg and
+	// invoke OverlayMinimizer hooks; pure-chrome callers can ignore it
+	// (Consumed is still true so they know to swallow the event).
+	MinimizeToggled bool
 }
 
 // ChromePointerAction describes a pointer event for window chrome handling.
@@ -746,7 +862,20 @@ func HandleChromePointer(action ChromePointerAction, leftButton bool, x, y int, 
 		if wc.showClose() && cellInRect(rx, ry, reg.CloseX, reg.CloseY, reg.CloseW, reg.CloseH) {
 			return ChromeMouseResult{Consumed: true, Pop: true}
 		}
-		if wc.resizable() {
+		if wc.showMinimize() && cellInRect(rx, ry, reg.MinimizeX, reg.MinimizeY, reg.MinimizeW, reg.MinimizeH) {
+			st.Minimized = !st.Minimized
+			// A pending drag / resize on the modal would survive the
+			// state flip and behave nonsensically once the body is gone,
+			// so cancel them here.
+			st.Dragging = false
+			st.Resizing = false
+			st.ResizeEdge = ResizeNone
+			return ChromeMouseResult{Consumed: true, MinimizeToggled: true}
+		}
+		// When minimized the body is gone, so resize handles aren't
+		// painted and shouldn't accept hits. The minimize button itself
+		// is checked above so toggling back to expanded still works.
+		if wc.resizable() && !st.Minimized {
 			if cellInRect(rx, ry, reg.ResizeCornerX, reg.ResizeCornerY, reg.ResizeCornerW, reg.ResizeCornerH) {
 				st.Resizing = true
 				st.ResizeEdge = ResizeCorner
@@ -770,6 +899,28 @@ func HandleChromePointer(action ChromePointerAction, leftButton bool, x, y int, 
 			}
 		}
 		if wc.draggable() && cellInTabDrag(rx, ry, reg) {
+			// Double-click on the tab toggles minimize, mirroring the
+			// desktop OS gesture. We only honour it when the minimize
+			// affordance is enabled — otherwise users have no visible
+			// hint that this gesture exists, and it'd be a surprise.
+			//
+			// "Same target" is defined as "two presses in the tab drag
+			// area within DoubleClickThreshold"; we deliberately don't
+			// require the same exact cell so the gesture survives a
+			// few cells of cursor jitter between presses.
+			now := time.Now()
+			if wc.showMinimize() && !st.LastTabPressAt.IsZero() && now.Sub(st.LastTabPressAt) <= DoubleClickThreshold {
+				st.Minimized = !st.Minimized
+				st.Dragging = false
+				st.Resizing = false
+				st.ResizeEdge = ResizeNone
+				// Clear the press tracker so a third quick click
+				// doesn't immediately re-toggle (double-click is a
+				// discrete event, not a repeating one).
+				st.LastTabPressAt = time.Time{}
+				return ChromeMouseResult{Consumed: true, MinimizeToggled: true}
+			}
+			st.LastTabPressAt = now
 			st.Dragging = true
 			st.DragOffsetX = x - left
 			st.DragOffsetY = y - top

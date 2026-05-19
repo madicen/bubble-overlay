@@ -120,6 +120,10 @@ inside := overlay.CellInModal(msg.X, msg.Y, t, l, mw, mh)
 
 **Pass-through mouse routing.** Hosts that want their main view to stay clickable while a modal is open (e.g. a long-running progress overlay where the user should still be able to browse the underlying content) can call `stack.MouseTargetsTop(msg, w, h)` before forwarding to `stack.Update`. It returns `true` when the event belongs to the top overlay — coordinates inside the painted modal rect, or any motion / release while a chrome drag or resize gesture is in progress — and `false` when the host should route the message to its own main model instead. Keyboard events are unaffected; they still go through `stack.Update` as before, so the modal keeps owning its keymap (Escape, action keys, etc.).
 
+**Minimize button.** Set `WindowChrome.ShowMinimizeButton = true` to render a `[-]` toggle to the left of the close button. Clicking it flips `LayerState.Minimized` and collapses the window to its tab strip (cap + tab row + flat bottom border) — the body and resize handles disappear, but the chrome stays draggable and the title (including any `OverlayTitler` dynamic value) stays visible. The glyph flips to `[+]` when minimized; clicking it again restores the body to its previous content size. Both glyphs share `MinimizeButtonWidth` so the close button doesn't shift columns between states. The stack notifies the entry model when state toggles, via both an `OverlayMinimizedMsg{Minimized: bool}` delivered through `Update` and an optional `OverlayMinimizer.OnOverlayMinimize(bool)` callback — same dual-signal pattern as `OverlayResizer` / `OverlayResizedMsg`.
+
+**Double-click to minimize / restore.** When `ShowMinimizeButton` is enabled, two presses on the tab drag area within `DoubleClickThreshold` (500ms) toggle minimize — mirroring the OS-level title-bar gesture. The chrome cancels the drag the first press kicked off so the window doesn't drift while toggling. The gesture is gated on `ShowMinimizeButton` for discoverability: without the visible `[-]/[+]` affordance, a hidden double-click action would be too surprising.
+
 **`Window` (single-modal helper).** When you don't need stack semantics, use the `Window` type from `pane.go`: pass `content`, `title`, and a stable `key` and it manages chrome, drag, resize, and close for you. Set `Window.Configure` if you need to override the built-in defaults (`CenterContent`, `MinWidth=32`, `MinHeight=6`, default mask rune): the callback receives the populated `OverlayConfig` and may mutate any field; `WindowChrome.Enabled` is forced back on so the render path stays consistent.
 
 ---
@@ -153,7 +157,7 @@ Before merging overlay geometry or merge behavior changes: exercise **resize**, 
 | `OverlayViewInCenter*`, `OverlayViewInCenterInMain`, `OverlayViewInCenterWithOffset*`, `OverlayViewAtPoint*` | `overlay` | Common centered, offset, and anchored layouts. |
 | `OverlayConfig`, `Placement`, `Placement.ClampedOrigin` | `overlay` | Per-frame dimming and anchor. |
 | `WindowChrome`, `EnableWindowChrome`, `HandleChromeKey`, `WindowFrame`, `RenderEntryModal` | `overlay` | Title bar, drag, resize, keyboard chrome, and framing helpers. |
-| `OverlayStack`, `OverlayStack.MouseTargetsTop`, `OverlayOnCloser`, `OverlayTitler`, `OverlayResizer`, `OverlayResizedMsg`, `FocusTrap`, `DevStackDepthFooter` | `overlay` | v1 stack, lifecycle hooks, mouse-routing hit-test, and helpers. |
+| `OverlayStack`, `OverlayStack.MouseTargetsTop`, `OverlayOnCloser`, `OverlayTitler`, `OverlayResizer`, `OverlayResizedMsg`, `OverlayMinimizer`, `OverlayMinimizedMsg`, `FocusTrap`, `DevStackDepthFooter` | `overlay` | v1 stack, lifecycle hooks, mouse-routing hit-test, and helpers. |
 | `Window`, `Window.Configure`, `WindowResizedMsg` | `overlay` | Single-modal helper for state-machine-driven apps. |
 | `Stack`, `ViewAdapter`, `StringPipelineAdapter`, `ViewString` | `overlayv2` | v2 stack + R1 compositor. |
 
