@@ -40,6 +40,27 @@ type OverlayResizer interface {
 	OnOverlayResize(contentW, contentH int) tea.Cmd
 }
 
+// OverlayMinimizedMsg is dispatched to a stack-pushed model when the
+// user clicks the chrome's minimize / restore toggle and the layer's
+// Minimized state flips. Models can react by pausing animations,
+// freeing offscreen viewports, or showing a "(minimized)" hint
+// elsewhere in the UI.
+//
+// The library also continues to render the chrome's title bar while
+// minimized — content delivered through OverlayTitler stays visible —
+// so consumers don't have to do anything to keep the modal labeled.
+type OverlayMinimizedMsg struct {
+	Minimized bool
+}
+
+// OverlayMinimizer is the optional interface a stack-pushed model can
+// implement if it prefers a direct callback over an OverlayMinimizedMsg
+// in its Update. The stack invokes OnOverlayMinimize before delivering
+// the message; returning a tea.Cmd schedules follow-up work.
+type OverlayMinimizer interface {
+	OnOverlayMinimize(minimized bool) tea.Cmd
+}
+
 type stackEntry struct {
 	model tea.Model
 	cfg   OverlayConfig
@@ -241,6 +262,29 @@ func (s *OverlayStack) topLayout(viewW, viewH int) (top, left, mw, mh int) {
 	return top, left, mw, mh
 }
 
+// notifyMinimize is the minimize-toggle counterpart of notifyResize: it
+// invokes the entry's optional OverlayMinimizer hook and delivers an
+// OverlayMinimizedMsg through the model's own Update so consumers can
+// react with either integration style.
+func (s *OverlayStack) notifyMinimize(ent *stackEntry, minimized bool) tea.Cmd {
+	var cmds []tea.Cmd
+	if r, ok := ent.model.(OverlayMinimizer); ok {
+		if c := r.OnOverlayMinimize(minimized); c != nil {
+			cmds = append(cmds, c)
+		}
+	}
+	msg := OverlayMinimizedMsg{Minimized: minimized}
+	var c tea.Cmd
+	ent.model, c = ent.model.Update(msg)
+	if c != nil {
+		cmds = append(cmds, c)
+	}
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
+}
+
 // notifyResize calls the entry model's optional OnOverlayResize hook and
 // returns a tea.Cmd that delivers OverlayResizedMsg back through the
 // model's own Update. Both signals fire so consumers can pick whichever
@@ -349,12 +393,21 @@ func (s *OverlayStack) Update(msg tea.Msg) tea.Cmd {
 				justFinishedResize := wasResizing && !ent.layer.Resizing
 				dimsChanged := ent.layer.ContentSizeInitialized &&
 					(ent.layer.ContentWidth != oldW || ent.layer.ContentHeight != oldH)
-				if justFinishedResize || dimsChanged {
-					if c := s.notifyResize(ent, ent.layer.ContentWidth, ent.layer.ContentHeight); c != nil {
-						return c
+				var cmds []tea.Cmd
+				if res.MinimizeToggled {
+					if c := s.notifyMinimize(ent, ent.layer.Minimized); c != nil {
+						cmds = append(cmds, c)
 					}
 				}
-				return nil
+				if justFinishedResize || dimsChanged {
+					if c := s.notifyResize(ent, ent.layer.ContentWidth, ent.layer.ContentHeight); c != nil {
+						cmds = append(cmds, c)
+					}
+				}
+				if len(cmds) == 0 {
+					return nil
+				}
+				return tea.Batch(cmds...)
 			}
 		}
 		if cfg.CloseOnClickOutside && isPrimaryPress(msg) {
