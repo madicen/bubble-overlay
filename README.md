@@ -118,6 +118,8 @@ inside := overlay.CellInModal(msg.X, msg.Y, t, l, mw, mh)
 
 **bubblezone compatibility.** Modal rows that contain no transparent cells (the common case for chromed bodies, since `WindowChrome.AutoWrap` only pads padding rows with the mask rune) take a string-splice fast path in `overlayLine`. That path concatenates the modal substring verbatim, so zero-width CSI sequences like bubblezone's `\x1B[<id>z` markers survive compositing intact — `bubblezone.Scan` over `stack.View(main, w, h)` will still find your zones. Transparent cells force the cellbuf compositor, which drops unknown zero-width sequences as a side effect of re-emitting decoded cell data; keep zone markers out of rows that you intentionally make transparent.
 
+**Pass-through mouse routing.** Hosts that want their main view to stay clickable while a modal is open (e.g. a long-running progress overlay where the user should still be able to browse the underlying content) can call `stack.MouseTargetsTop(msg, w, h)` before forwarding to `stack.Update`. It returns `true` when the event belongs to the top overlay — coordinates inside the painted modal rect, or any motion / release while a chrome drag or resize gesture is in progress — and `false` when the host should route the message to its own main model instead. Keyboard events are unaffected; they still go through `stack.Update` as before, so the modal keeps owning its keymap (Escape, action keys, etc.).
+
 **`Window` (single-modal helper).** When you don't need stack semantics, use the `Window` type from `pane.go`: pass `content`, `title`, and a stable `key` and it manages chrome, drag, resize, and close for you. Set `Window.Configure` if you need to override the built-in defaults (`CenterContent`, `MinWidth=32`, `MinHeight=6`, default mask rune): the callback receives the populated `OverlayConfig` and may mutate any field; `WindowChrome.Enabled` is forced back on so the render path stays consistent.
 
 ---
@@ -151,7 +153,7 @@ Before merging overlay geometry or merge behavior changes: exercise **resize**, 
 | `OverlayViewInCenter*`, `OverlayViewInCenterInMain`, `OverlayViewInCenterWithOffset*`, `OverlayViewAtPoint*` | `overlay` | Common centered, offset, and anchored layouts. |
 | `OverlayConfig`, `Placement`, `Placement.ClampedOrigin` | `overlay` | Per-frame dimming and anchor. |
 | `WindowChrome`, `EnableWindowChrome`, `HandleChromeKey`, `WindowFrame`, `RenderEntryModal` | `overlay` | Title bar, drag, resize, keyboard chrome, and framing helpers. |
-| `OverlayStack`, `OverlayOnCloser`, `OverlayTitler`, `OverlayResizer`, `OverlayResizedMsg`, `FocusTrap`, `DevStackDepthFooter` | `overlay` | v1 stack, lifecycle hooks, and helpers. |
+| `OverlayStack`, `OverlayStack.MouseTargetsTop`, `OverlayOnCloser`, `OverlayTitler`, `OverlayResizer`, `OverlayResizedMsg`, `FocusTrap`, `DevStackDepthFooter` | `overlay` | v1 stack, lifecycle hooks, mouse-routing hit-test, and helpers. |
 | `Window`, `Window.Configure`, `WindowResizedMsg` | `overlay` | Single-modal helper for state-machine-driven apps. |
 | `Stack`, `ViewAdapter`, `StringPipelineAdapter`, `ViewString` | `overlayv2` | v2 stack + R1 compositor. |
 
