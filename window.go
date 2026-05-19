@@ -607,6 +607,27 @@ type LayerState struct {
 	ResizeStartW, ResizeStartH int
 }
 
+// ResetOrigin clears draggable origin so the next layout pass re-seeds from Placement.
+func (st *LayerState) ResetOrigin() {
+	if st == nil {
+		return
+	}
+	st.OriginTop = 0
+	st.OriginLeft = 0
+	st.OriginInitialized = false
+	st.Dragging = false
+	st.DragOffsetX = 0
+	st.DragOffsetY = 0
+}
+
+// Reset clears all layer state (origin, drag, resize, content size).
+func (st *LayerState) Reset() {
+	if st == nil {
+		return
+	}
+	*st = LayerState{}
+}
+
 // RenderEntryModal returns the modal string for an entry, including auto-wrap chrome when configured.
 func RenderEntryModal(modelView string, cfg OverlayConfig, layer *LayerState) string {
 	wc := cfg.WindowChrome.effective()
