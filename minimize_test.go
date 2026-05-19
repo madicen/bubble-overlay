@@ -3,6 +3,7 @@ package overlay
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -292,5 +293,156 @@ func TestOverlayStack_minimizeCancelsActiveDragAndResize(t *testing.T) {
 	}
 	if s.entries[0].layer.Dragging || s.entries[0].layer.Resizing {
 		t.Fatalf("minimize toggle must cancel active gestures: dragging=%v resizing=%v", s.entries[0].layer.Dragging, s.entries[0].layer.Resizing)
+	}
+}
+
+// TestOverlayStack_doubleClickTabTogglesMinimize verifies the
+// OS-style "double-click the title bar to minimize / restore" gesture:
+// two presses on the tab drag area within DoubleClickThreshold should
+// flip LayerState.Minimized, cancel any drag the first press kicked
+// off, and broadcast via the usual MinimizeToggled path.
+//
+// We exploit the exported LastTabPressAt field to simulate "first
+// press was 50ms ago" without sleeping, keeping the test fast and
+// deterministic.
+func TestOverlayStack_doubleClickTabTogglesMinimize(t *testing.T) {
+	tracker := &minimizeTrackingModel{
+		view:              strings.Repeat("M", 40) + "\n" + strings.Repeat("M", 40),
+		overlayTitleValue: "review · idle",
+	}
+	s, _ := rendersMinimizeChromeFixture(t, tracker)
+	_ = s.View("bg", 120, 40)
+
+	// Pre-arm the layer as if a press happened 50ms ago — well inside
+	// the 500ms threshold.
+	s.entries[0].layer.LastTabPressAt = time.Now().Add(-50 * time.Millisecond)
+
+	// Second press at a known tab-drag coordinate. Pick a column
+	// inside the tab body but to the LEFT of the buttons cluster so
+	// the press routes to the drag-area branch, not the minimize
+	// button hit-test.
+	pressMsg := tabDragPress(s, 120, 40)
+	if c := s.Update(pressMsg); c != nil {
+		_ = c() // drain notifyMinimize batched cmd
+	}
+
+	if !s.entries[0].layer.Minimized {
+		t.Fatalf("double-click on tab should have minimized the window; LastTabPressAt=%v", s.entries[0].layer.LastTabPressAt)
+	}
+	if s.entries[0].layer.Dragging {
+		t.Fatal("double-click handler must cancel the second press's drag — leaving Dragging=true would re-position the modal on the next motion")
+	}
+	if !tracker.onCallbackCalled || !tracker.onCallbackVal {
+		t.Fatalf("double-click should fire OverlayMinimizer.OnOverlayMinimize(true), got called=%v val=%v", tracker.onCallbackCalled, tracker.onCallbackVal)
+	}
+	if !s.entries[0].layer.LastTabPressAt.IsZero() {
+		t.Fatal("LastTabPressAt should reset after toggle so a third quick click doesn't immediately re-toggle")
+	}
+}
+
+// TestOverlayStack_doubleClickTabBeyondThresholdDoesNotToggle is the
+// other side of the gesture: two presses spaced WIDER than
+// DoubleClickThreshold are two independent clicks, not a double-click.
+// The first arms LastTabPressAt; the second sees a stale timestamp,
+// re-arms it, and starts a normal drag.
+func TestOverlayStack_doubleClickTabBeyondThresholdDoesNotToggle(t *testing.T) {
+	tracker := &minimizeTrackingModel{
+		view:              strings.Repeat("M", 40) + "\n" + strings.Repeat("M", 40),
+		overlayTitleValue: "review · idle",
+	}
+	s, _ := rendersMinimizeChromeFixture(t, tracker)
+	_ = s.View("bg", 120, 40)
+
+	// Simulate "first press was 2 seconds ago" — well beyond the
+	// 500ms threshold.
+	s.entries[0].layer.LastTabPressAt = time.Now().Add(-2 * time.Second)
+
+	pressMsg := tabDragPress(s, 120, 40)
+	if c := s.Update(pressMsg); c != nil {
+		_ = c()
+	}
+
+	if s.entries[0].layer.Minimized {
+		t.Fatal("press more than DoubleClickThreshold after the previous one must NOT toggle minimize")
+	}
+	if !s.entries[0].layer.Dragging {
+		t.Fatal("stale-timestamp press should start a fresh drag, not be swallowed by the double-click branch")
+	}
+	if tracker.onCallbackCalled {
+		t.Fatalf("OverlayMinimizer hook should not fire when the gesture is not a double-click")
+	}
+}
+
+// TestOverlayStack_doubleClickTabWithoutMinimizeButtonNoOp guards the
+// discoverability gate: without ShowMinimizeButton, the user has no
+// visible affordance to discover the double-click gesture, so we
+// intentionally don't honour it — the second press starts a normal
+// drag instead. (Consumers that want bare double-click minimize can
+// always set ShowMinimizeButton=true; making the gate opt-out instead
+// of opt-in would surprise existing consumers.)
+func TestOverlayStack_doubleClickTabWithoutMinimizeButtonNoOp(t *testing.T) {
+	cfg := DefaultOverlayConfig()
+	cfg.WindowChrome = EnableWindowChrome("no-min")
+	cfg.WindowChrome.ShowMinimizeButton = false // explicit
+	cfg.WindowChrome.Resizable = true
+	cfg.WindowChrome.MinWidth = 30
+	cfg.WindowChrome.MinHeight = 6
+	s := &OverlayStack{}
+	s.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	s.Push(staticModel{view: strings.Repeat("M", 40) + "\n" + strings.Repeat("M", 40)}, cfg)
+	s.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	_ = s.View("bg", 120, 40)
+
+	s.entries[0].layer.LastTabPressAt = time.Now().Add(-50 * time.Millisecond)
+	s.Update(tabDragPress(s, 120, 40))
+
+	if s.entries[0].layer.Minimized {
+		t.Fatal("without ShowMinimizeButton, double-click must not toggle minimize")
+	}
+}
+
+// tabDragPress builds a left-button press at a coordinate guaranteed
+// to live inside the tab drag area but to the LEFT of the buttons
+// cluster — column tabLeft+1 hits the lead space of the inner text,
+// which is plain background (no glyph hit-rect overlaps it).
+func tabDragPress(s *OverlayStack, viewW, viewH int) tea.MouseMsg {
+	ent := &s.entries[len(s.entries)-1]
+	cfg := ent.effectiveConfig()
+	wc := cfg.WindowChrome.effective()
+	modal := RenderEntryModal(ent.model.View(), cfg, &ent.layer)
+	cw, ch := ContentSizeForLayer(modal, wc, &ent.layer)
+	reg := ComputeChromeRegions(wc, cw, ch)
+	top, left, _, _ := s.topLayout(viewW, viewH)
+	return tea.MouseMsg{
+		X:      left + reg.TabLeft + 1, // lead space inside the tab
+		Y:      top + reg.TabTop + 1,   // tab body row
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonLeft,
+	}
+}
+
+// TestOverlayStack_singleClickTabArmsTimestamp is the load-bearing
+// invariant behind detect-second-press: a single press on the tab
+// drag area must record LastTabPressAt so the next press has
+// something to compare against. Without this, the double-click branch
+// would never fire.
+func TestOverlayStack_singleClickTabArmsTimestamp(t *testing.T) {
+	tracker := &minimizeTrackingModel{
+		view:              strings.Repeat("M", 40) + "\n" + strings.Repeat("M", 40),
+		overlayTitleValue: "review · idle",
+	}
+	s, _ := rendersMinimizeChromeFixture(t, tracker)
+	_ = s.View("bg", 120, 40)
+
+	before := time.Now()
+	s.Update(tabDragPress(s, 120, 40))
+	after := time.Now()
+
+	got := s.entries[0].layer.LastTabPressAt
+	if got.IsZero() {
+		t.Fatal("expected LastTabPressAt to be set after a tab drag press, got zero")
+	}
+	if got.Before(before) || got.After(after) {
+		t.Fatalf("LastTabPressAt %v should fall inside [%v, %v]", got, before, after)
 	}
 }

@@ -3,10 +3,23 @@ package overlay
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// DoubleClickThreshold is the maximum wall-clock gap between two
+// chrome tab presses for the chrome handler to treat the second press
+// as a double-click. 500ms matches the OS-level default on every major
+// desktop platform, which is the gesture this feature mimics
+// (double-click title bar to minimize / maximize).
+//
+// Consumers that need a different threshold can override it via
+// LayerState.LastTabPressAt manipulation, but the constant itself is
+// intentionally hard-coded so the gesture feels uniform across apps
+// built on this library.
+const DoubleClickThreshold = 500 * time.Millisecond
 
 // CloseButtonGlyph is the close control label inside the tab.
 const CloseButtonGlyph = "[x]"
@@ -695,6 +708,13 @@ type LayerState struct {
 	// flips to RestoreButtonGlyph so clicking it expands the body
 	// back to its previous ContentWidth / ContentHeight.
 	Minimized bool
+	// LastTabPressAt is the wall-clock time of the most recent left-
+	// button press that landed in the tab's drag area. The chrome
+	// handler uses it to detect a double-click (two presses within
+	// DoubleClickThreshold) on the tab strip, which toggles the
+	// minimized state. Exposed so tests can simulate "the first press
+	// was N ms ago" without needing real sleeps or a clock injection.
+	LastTabPressAt time.Time
 }
 
 // ResetOrigin clears draggable origin so the next layout pass re-seeds from Placement.
@@ -879,6 +899,28 @@ func HandleChromePointer(action ChromePointerAction, leftButton bool, x, y int, 
 			}
 		}
 		if wc.draggable() && cellInTabDrag(rx, ry, reg) {
+			// Double-click on the tab toggles minimize, mirroring the
+			// desktop OS gesture. We only honour it when the minimize
+			// affordance is enabled — otherwise users have no visible
+			// hint that this gesture exists, and it'd be a surprise.
+			//
+			// "Same target" is defined as "two presses in the tab drag
+			// area within DoubleClickThreshold"; we deliberately don't
+			// require the same exact cell so the gesture survives a
+			// few cells of cursor jitter between presses.
+			now := time.Now()
+			if wc.showMinimize() && !st.LastTabPressAt.IsZero() && now.Sub(st.LastTabPressAt) <= DoubleClickThreshold {
+				st.Minimized = !st.Minimized
+				st.Dragging = false
+				st.Resizing = false
+				st.ResizeEdge = ResizeNone
+				// Clear the press tracker so a third quick click
+				// doesn't immediately re-toggle (double-click is a
+				// discrete event, not a repeating one).
+				st.LastTabPressAt = time.Time{}
+				return ChromeMouseResult{Consumed: true, MinimizeToggled: true}
+			}
+			st.LastTabPressAt = now
 			st.Dragging = true
 			st.DragOffsetX = x - left
 			st.DragOffsetY = y - top
