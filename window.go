@@ -14,13 +14,17 @@ const CloseButtonGlyph = "[x]"
 // CloseButtonWidth is the display width of CloseButtonGlyph for hit-testing.
 const CloseButtonWidth = 3
 
+// DefaultChromeMaskRune is the pass-through padding rune for WindowChrome auto-wrap
+// (U+FFFC OBJECT REPLACEMENT). It is unlikely to appear in modal content. Set
+// WindowChrome.ChromeMaskRune to override if your content might use this character.
+const DefaultChromeMaskRune = '\ufffc'
+
 const (
 	defaultTabBackground = "238"
 	defaultTabForeground = "252"
 	defaultTabBorder     = "63"
 	defaultTabOffsetTop  = 1
 	defaultTabOffsetLeft = 0
-	defaultChromeMask    = '░'
 	defaultMinContentW   = 20
 	defaultMinContentH   = 4
 )
@@ -40,7 +44,7 @@ type WindowChrome struct {
 	TabBorder       string // lipgloss color for tab border runes
 	TabOffsetTop    int    // rows above tab (default 1)
 	TabOffsetLeft   int    // columns left of tab (default 0)
-	ChromeMaskRune  rune   // pass-through padding in auto-wrap chrome (default ░); 0 uses default
+	ChromeMaskRune  rune   // pass-through padding in auto-wrap chrome; 0 uses DefaultChromeMaskRune
 	Resizable       bool   // drag right/bottom edges (and corner) to resize content
 	Keyboard        bool   // Alt+arrow move, Alt+Shift+arrow resize
 	KeyStep         int    // cells per keypress when Keyboard is enabled (default 1)
@@ -203,7 +207,7 @@ func (w WindowChrome) chromeMaskRune() rune {
 		return 0
 	}
 	if w.ChromeMaskRune == 0 {
-		return defaultChromeMask
+		return DefaultChromeMaskRune
 	}
 	return w.ChromeMaskRune
 }

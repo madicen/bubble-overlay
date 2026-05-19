@@ -33,7 +33,7 @@ func TestWindowFrame_tab_layout(t *testing.T) {
 		t.Fatalf("content should not have outer chrome border, line[3]=%q", lines[3])
 	}
 	// padding to the right of tab uses mask
-	if !strings.Contains(lines[1], string(defaultChromeMask)) {
+	if !strings.Contains(lines[1], string(DefaultChromeMaskRune)) {
 		t.Fatalf("tab row should use mask padding")
 	}
 }
@@ -269,6 +269,18 @@ func TestHandleChrome_resize_bottom_edge(t *testing.T) {
 	HandleChromeMouse(motion, cfg, st, modal, top, left, mw, mh, 80, 25)
 	if st.ContentHeight < 6 {
 		t.Fatalf("height should grow on bottom-edge drag, got %d", st.ContentHeight)
+	}
+}
+
+func TestWindowChrome_customMaskRune(t *testing.T) {
+	wc := EnableWindowChrome("T")
+	wc.ChromeMaskRune = '░'
+	if got := wc.chromeMaskRune(); got != '░' {
+		t.Fatalf("ChromeMaskRune: got %q, want ░", got)
+	}
+	wc.ChromeMaskRune = 0
+	if got := wc.chromeMaskRune(); got != DefaultChromeMaskRune {
+		t.Fatalf("zero ChromeMaskRune: got %q, want DefaultChromeMaskRune", got)
 	}
 }
 
