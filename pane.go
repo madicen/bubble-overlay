@@ -19,6 +19,19 @@ type Window struct {
 	// OnResize is optional; WindowResizedMsg is always emitted on resize end.
 	OnResize func(contentW, contentH int) tea.Cmd
 
+	// Configure is an optional hook that lets the consumer override the
+	// OverlayConfig the Window builds for each frame. It receives a fully
+	// populated config (DefaultOverlayConfig + EnableWindowChrome + the
+	// Window's resizable / keyboard / centerContent defaults already
+	// applied) and may mutate any field — placement, dim opacity, close
+	// behaviour, min size, the chrome mask rune, etc. WindowChrome.Enabled
+	// must remain true; if Configure clears it, the Window forces it back
+	// on so the chrome path stays consistent.
+	//
+	// Use this when you need a chromed modal but want different defaults
+	// than configFor's "centered, MinWidth=32, MinHeight=6, U+E000 mask".
+	Configure func(*OverlayConfig)
+
 	lastKey string
 
 	frameKey      string
@@ -186,6 +199,18 @@ func (w *Window) configFor(title string) OverlayConfig {
 	cfg.WindowChrome.CenterContent = true
 	cfg.WindowChrome.MinWidth = 32
 	cfg.WindowChrome.MinHeight = 6
+	if w != nil && w.Configure != nil {
+		w.Configure(&cfg)
+		// WindowChrome.Enabled is load-bearing: Window's render path
+		// assumes a chromed modal. Force it back on if the consumer
+		// cleared it so we don't crash later in renderTabFrame.
+		cfg.WindowChrome.Enabled = true
+		// Re-apply Title each frame so a Configure that forgets to set
+		// it still gets the most recent argument from the caller.
+		if cfg.WindowChrome.Title == "" {
+			cfg.WindowChrome.Title = title
+		}
+	}
 	cfg.WindowChrome = cfg.WindowChrome.effective()
 	return cfg
 }

@@ -14,10 +14,16 @@ const CloseButtonGlyph = "[x]"
 // CloseButtonWidth is the display width of CloseButtonGlyph for hit-testing.
 const CloseButtonWidth = 3
 
-// DefaultChromeMaskRune is the pass-through padding rune for WindowChrome auto-wrap
-// (U+FFFC OBJECT REPLACEMENT). It is unlikely to appear in modal content. Set
-// WindowChrome.ChromeMaskRune to override if your content might use this character.
-const DefaultChromeMaskRune = '\ufffc'
+// DefaultChromeMaskRune is the pass-through padding rune for WindowChrome
+// auto-wrap. It lives in the Unicode Private Use Area (U+E000), which is
+// guaranteed not to appear in normal text — glamour-rendered markdown,
+// terminal images, and other rich content occasionally include U+FFFC
+// (OBJECT REPLACEMENT CHARACTER), which previously caused mergeMaskRune
+// to punch transparent holes through chromed modals.
+//
+// Set WindowChrome.ChromeMaskRune to override if your content happens to
+// produce U+E000 (extremely unlikely outside custom font pickers).
+const DefaultChromeMaskRune = '\ue000'
 
 const (
 	defaultTabBackground = "238"

@@ -202,7 +202,18 @@ func OverlayViewAtPointWithMask(mainView, modalView string, viewWidth, viewHeigh
 }
 
 func overlayLine(mainLine, modalLine string, left, modalW, viewWidth int, kind overlayMergeKind, maskRune rune) string {
-	if kind == mergeOpaque {
+	// Opaque rows always splice. The splice path concatenates the modal
+	// substring verbatim, so zero-width CSI sequences embedded in the
+	// modal (e.g. bubblezone markers `\x1B[<id>z`) survive intact.
+	//
+	// Transparent rows must merge cell-by-cell, so they go through the
+	// cellbuf compositor below — that path can't preserve unknown
+	// zero-width sequences because it re-emits the row from decoded
+	// cell data. Callers that need bubblezone interaction inside a
+	// chromed window therefore want as many rows as possible to take
+	// the splice path; we detect that here by checking whether the
+	// modal row actually has any transparent cells.
+	if kind == mergeOpaque || !rowHasTransparentCell(modalLine, kind, maskRune) {
 		prefix := prefixCells(mainLine, left)
 		if w := widthCells(prefix); w < left {
 			prefix += strings.Repeat(" ", left-w)
@@ -298,6 +309,48 @@ func renderLine(buf *cellbuf.Buffer, width int) string {
 	b.WriteString(ansi.ResetStyle)
 	b.WriteString(ansi.ResetHyperlink())
 	return b.String()
+}
+
+// rowHasTransparentCell reports whether modalLine contains at least one cell
+// the chosen merge kind would treat as transparent. It walks the line via
+// the ANSI parser so escape sequences and OSC payloads can't masquerade as
+// content characters.
+//
+// mergeOpaque always returns false (no cell is transparent).
+// mergeTransparentSpaces returns true on the first ASCII space cell.
+// mergeMaskRune returns true on the first cell whose rune equals maskRune.
+func rowHasTransparentCell(modalLine string, kind overlayMergeKind, maskRune rune) bool {
+	if kind == mergeOpaque {
+		return false
+	}
+	if kind == mergeMaskRune && maskRune == 0 {
+		return false
+	}
+	var state byte
+	p := ansi.GetParser()
+	defer ansi.PutParser(p)
+	pos := 0
+	for pos < len(modalLine) {
+		seq, width, nRead, newState := ansi.DecodeSequence(modalLine[pos:], state, p)
+		state = newState
+		if width == 0 {
+			pos += nRead
+			continue
+		}
+		r, _ := utf8.DecodeRuneInString(seq)
+		switch kind {
+		case mergeTransparentSpaces:
+			if r == ' ' {
+				return true
+			}
+		case mergeMaskRune:
+			if r == maskRune {
+				return true
+			}
+		}
+		pos += nRead
+	}
+	return false
 }
 
 func setString(buf *cellbuf.Buffer, x, y int, s string) {
