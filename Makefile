@@ -9,3 +9,4 @@ gifs:
 	vhs < vhs/colors.tape
 	vhs < vhs/stack.tape
 	vhs < vhs/transparency.tape
+	vhs < vhs/draggable.tape

@@ -31,3 +31,13 @@ func ModalCellSize(modal string) (w, h int) {
 func CellInModal(x, y, top, left, mw, mh int) bool {
 	return layout.CellInModal(x, y, top, left, mw, mh)
 }
+
+// CellInTitleBar reports whether (x, y) is on the title bar, excluding the close-button region.
+func CellInTitleBar(x, y, top, left, mw, titleBarH, closeW int) bool {
+	return layout.CellInTitleBar(x, y, top, left, mw, titleBarH, closeW)
+}
+
+// CellInCloseButton reports whether (x, y) is on the close control in the title bar.
+func CellInCloseButton(x, y, top, left, mw, titleBarH, closeW int) bool {
+	return layout.CellInCloseButton(x, y, top, left, mw, titleBarH, closeW)
+}

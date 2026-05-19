@@ -128,6 +128,22 @@ func TestOverlayStability_line_count_after_resize(t *testing.T) {
 	}
 }
 
+func TestStack_chrome_close_pops_v2(t *testing.T) {
+	var s Stack
+	cfg := bov.DefaultOverlayConfig()
+	cfg.WindowChrome = bov.EnableWindowChrome("Close")
+	cfg.DimOpacity = 0
+	s.Push(staticV2{view: "hi\nthere"}, cfg)
+	s.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
+	top, left, _, _ := s.topLayout(40, 20)
+	modal := bov.RenderEntryModal("hi\nthere", cfg, nil)
+	reg := bov.ComputeChromeRegions(cfg.WindowChrome, bov.ModalBodyWidth(modal, cfg.WindowChrome), bov.ModalBodyHeight(modal, cfg.WindowChrome))
+	s.Update(tea.MouseClickMsg{X: left + reg.CloseX, Y: top + reg.CloseY, Button: tea.MouseLeft})
+	if s.Depth() != 0 {
+		t.Fatalf("close should pop, depth=%d", s.Depth())
+	}
+}
+
 func TestCompositeView_matches_string_pipeline(t *testing.T) {
 	main := strings.Repeat(".", 10) + "\n" + strings.Repeat(".", 10)
 	var s Stack

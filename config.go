@@ -62,6 +62,7 @@ type OverlayConfig struct {
 	DimOpacity          float64
 	CloseOnEscape       bool
 	CloseOnClickOutside bool
+	WindowChrome        WindowChrome
 }
 
 func DefaultOverlayConfig() OverlayConfig {
