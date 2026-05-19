@@ -168,6 +168,85 @@ func TestWindow_ConfigureOverridesDefaults(t *testing.T) {
 	}
 }
 
+// TestMouseTargetsTop_emptyStackTrue keeps callers safe when they call
+// MouseTargetsTop unconditionally — with no overlays present there's no
+// "top" to route to but the host owns dispatch either way, so returning
+// true ("yes, top consumes it") gives the host a single safe pattern:
+//
+//	if stack.MouseTargetsTop(msg, w, h) { return stack.Update(msg) }
+//	return host.Update(msg)
+//
+// works correctly whether or not an overlay is currently open.
+func TestMouseTargetsTop_emptyStackTrue(t *testing.T) {
+	var s OverlayStack
+	if !s.MouseTargetsTop(tea.MouseMsg{X: 5, Y: 5}, 80, 25) {
+		t.Fatal("empty stack should report true so the unconditional-call pattern stays safe")
+	}
+}
+
+// TestMouseTargetsTop_insideRect lets a click inside the modal painted
+// rect route to the top overlay entry.
+func TestMouseTargetsTop_insideRect(t *testing.T) {
+	cfg := DefaultOverlayConfig()
+	cfg.WindowChrome = EnableWindowChrome("inside")
+	var s OverlayStack
+	s.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	s.Push(staticModel{view: strings.Repeat("M", 30) + "\n" + strings.Repeat("M", 30)}, cfg)
+	s.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	// The compositor centers a 30-wide / 2-tall body in a 120×40 viewport,
+	// so cell (60, 20) is guaranteed to land on the modal regardless of
+	// the chrome's exact tab offset.
+	if !s.MouseTargetsTop(tea.MouseMsg{X: 60, Y: 20}, 120, 40) {
+		t.Fatal("expected click at modal center to target top overlay")
+	}
+}
+
+// TestMouseTargetsTop_outsideRect is the pass-through case: a click far
+// from a small modal must NOT route to the overlay, so the host can
+// forward it to its main model and the background stays interactive.
+func TestMouseTargetsTop_outsideRect(t *testing.T) {
+	cfg := DefaultOverlayConfig()
+	cfg.WindowChrome = EnableWindowChrome("outside")
+	var s OverlayStack
+	s.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	s.Push(staticModel{view: "x\nx"}, cfg)
+	s.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	// (0, 0) is the top-left corner of the viewport; the modal is
+	// centered so this is unambiguously outside its painted rect.
+	if s.MouseTargetsTop(tea.MouseMsg{X: 0, Y: 0}, 120, 40) {
+		t.Fatal("expected click at viewport origin to fall outside the modal — host should receive the event")
+	}
+}
+
+// TestMouseTargetsTop_gestureInProgress is the load-bearing invariant
+// behind pass-through: once a drag or resize has started inside the
+// modal, every subsequent motion / release event belongs to the
+// overlay regardless of where the cursor goes, otherwise the chrome
+// state machine would get stuck mid-gesture.
+func TestMouseTargetsTop_gestureInProgress(t *testing.T) {
+	cfg := DefaultOverlayConfig()
+	cfg.WindowChrome = EnableWindowChrome("drag")
+	cfg.WindowChrome.Resizable = true
+
+	var s OverlayStack
+	s.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	s.Push(staticModel{view: "tiny"}, cfg)
+	s.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	// Directly flip the top entry's drag flag. Doing it via a synthetic
+	// mouse press inside the tab would also work but couples the test
+	// to chrome region geometry that's exercised elsewhere.
+	s.entries[len(s.entries)-1].layer.Dragging = true
+
+	// Now an event far outside the modal must still report "top consumes
+	// it" so the chrome motion handler runs.
+	if !s.MouseTargetsTop(tea.MouseMsg{X: 0, Y: 0, Action: tea.MouseActionMotion}, 120, 40) {
+		t.Fatal("expected motion event during drag to stay with the top overlay")
+	}
+}
+
 // TestWindow_ConfigureCannotDisableChrome guards the load-bearing
 // "WindowChrome.Enabled stays true" invariant — if a consumer's Configure
 // accidentally clears Enabled, the Window forces it back on so the chrome

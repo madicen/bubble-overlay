@@ -128,6 +128,59 @@ func (e *stackEntry) effectiveConfig() OverlayConfig {
 	return cfg
 }
 
+// MouseTargetsTop reports whether a mouse message should be routed to the
+// top overlay entry. Hosts that want "modal stays open but background
+// remains interactive" — e.g. a long-running progress modal where the user
+// should still be able to browse the underlying view — call this before
+// forwarding to OverlayStack.Update and route to their own main model
+// instead when it returns false.
+//
+// Returns true when any of:
+//
+//   - There are no overlays (no top entry exists, so the host owns
+//     routing anyway — true here keeps the call safe to make
+//     unconditionally and consistent with MainReceivesMouseMsg).
+//   - A chrome gesture (drag / resize) is currently in progress on the
+//     top entry. The chrome state machine started inside the modal on
+//     a press, and the subsequent motion / release events must reach
+//     it even when the cursor has wandered outside the painted rect.
+//   - The coordinates fall inside the top entry's painted rectangle
+//     (the modal body plus any chrome the library draws around it —
+//     tab strip, resize handles, etc.).
+//
+// Mouse wheel events at coordinates outside the modal return false so
+// the host's main model can scroll the underlying view. Inside the
+// modal they return true so the modal's own scroll target wins.
+//
+// This is purely a hit-test query — it does not mutate stack state and
+// is safe to call repeatedly per frame.
+func (s *OverlayStack) MouseTargetsTop(msg tea.MouseMsg, viewW, viewH int) bool {
+	if s == nil || len(s.entries) == 0 {
+		return true
+	}
+	ent := &s.entries[len(s.entries)-1]
+	// A drag / resize that started inside the modal must keep flowing
+	// to the overlay even when motion or release lands outside the
+	// painted rect, so check gesture state first.
+	if ent.layer.Dragging || ent.layer.Resizing {
+		return true
+	}
+	if viewW <= 0 {
+		viewW = s.lastW
+	}
+	if viewH <= 0 {
+		viewH = s.lastH
+	}
+	if viewW <= 0 || viewH <= 0 {
+		// Without a known viewport we can't hit-test; default to
+		// "yes, top consumes it" so we don't accidentally leak events
+		// to the host before its first WindowSizeMsg has propagated.
+		return true
+	}
+	top, left, mw, mh := s.topLayout(viewW, viewH)
+	return layout.CellInModal(msg.X, msg.Y, top, left, mw, mh)
+}
+
 // SetTopLayerOrigin sets the painted origin for the top entry when it uses draggable window chrome.
 func (s *OverlayStack) SetTopLayerOrigin(top, left int) {
 	if s == nil || len(s.entries) == 0 {
