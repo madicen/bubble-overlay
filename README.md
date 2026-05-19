@@ -42,7 +42,7 @@ func (m model) View() string {
 }
 ```
 
-**OverlayStack** adds nested modals, dimming, `Center` / `RightDrawer` / `Fixed`, Escape and optional click-outside, and **`FocusTrap`** so your base model skips keys/mouse while overlays are open. See **`examples/simple`**, **`examples/confirm`**, **`examples/stack`**.
+**OverlayStack** adds nested modals, dimming, `Center` / `RightDrawer` / `Fixed`, Escape and optional click-outside, optional **`WindowChrome`** (title bar, drag, close), and **`FocusTrap`** so your base model skips keys/mouse while overlays are open. See **`examples/simple`**, **`examples/confirm`**, **`examples/stack`**, **`examples/draggable`**.
 
 ---
 
@@ -106,6 +106,8 @@ inside := overlay.CellInModal(msg.X, msg.Y, t, l, mw, mh)
 
 **Stack vs raw compositing.** Prefer **`OverlayStack`** / **`Placement`** when you want **dimming**, **Escape / click-outside**, **nested modals**, and **focus routing** (`FocusTrap`). Use **`OverlayView`** (and helpers) when you only need a **single hole punch** or fully custom update routing.
 
+**Draggable window chrome.** Set **`OverlayConfig.WindowChrome`** (or **`EnableWindowChrome(title)`**) to add a bordered tab (offset down/right), drag-by-tab, and an optional **`[x]`** close control. Set **`Resizable: true`** to drag the right edge, bottom edge, or corner to resize (content should be unframed; chrome draws the border). Set **`Keyboard: true`** for **Alt+arrow** move and **Alt+Shift+arrow** resize (`KeyStep` sets cells per keypress, default 1). The title sits on the window’s top edge (`│ title ┴────┐`), with a small tab cap (`┌───┐`) on the row above. Customize **`TabBackground`**, **`TabForeground`**, **`TabBorder`**, **`CenterContent`**, **`ContentPadTop`**, **`MinWidth`**, **`MinHeight`**, and **`ChromeMaskRune`** (default **`░`**, pass-through padding via **`OverlayViewWithMask`**). The stack auto-wraps the overlay’s **`View()`** unless you call **`WindowFrame`** yourself and set **`AutoWrap: false`**. Enable mouse in your program (`tea.WithMouseAllMotion()` on v1). Call **`stack.View(main, w, h)`** with the same `w`/`h` you use for `WindowSizeMsg` so chrome hit-testing stays aligned. See **`examples/draggable`**.
+
 ---
 
 ## Consumer integration (`OverlayView` hosts)
@@ -118,7 +120,7 @@ inside := overlay.CellInModal(msg.X, msg.Y, t, l, mw, mh)
 
 **Coordinates.** **`OverlayView`** top/left are **zero-based** row and column offsets from the top-left of the view string. Bubble Tea v1 **`tea.MouseMsg`** **`X`** and **`Y`** use the same **zero-based** cell indexing, so they align directly with **`ClampOverlayOrigin`** / **`CellInModal`**. For Bubble Tea v2, use the **`X` / `Y`** from the underlying mouse event the same way once your pipeline uses the same width/height as compositing.
 
-**Helpers.** **`ModalCellSize`** and **`CellInModal`** are thin exports over the same helpers used by **`OverlayStack`** for modal bounds and inside/outside checks.
+**Helpers.** **`ModalCellSize`**, **`CellInModal`**, **`CellInTitleBar`**, and **`CellInCloseButton`** are thin exports over the same helpers used by **`OverlayStack`** for modal bounds and chrome hit-testing.
 
 **Behavioral note (sizing).** Modal width/height follow **`strings.Split(modal, "\n")`** and max **`lipgloss.Width`** per line (matching **`OverlayView`**), not a trimmed trailing newline. If you change that measurement in the compositor, update **`internal/layout.ModalCellSize`** and release notes accordingly.
 
@@ -136,6 +138,7 @@ Before merging overlay geometry or merge behavior changes: exercise **resize**, 
 | `ClampOverlayOrigin`, `ClampOverlayOriginAtPoint`, `ClampMenuOrigin`, `ModalCellSize`, `CellInModal` | `overlay` | Shared geometry for compositor parity and hit-testing. |
 | `OverlayViewInCenter*`, `OverlayViewInCenterInMain`, `OverlayViewInCenterWithOffset*`, `OverlayViewAtPoint*` | `overlay` | Common centered, offset, and anchored layouts. |
 | `OverlayConfig`, `Placement`, `Placement.ClampedOrigin` | `overlay` | Per-frame dimming and anchor. |
+| `WindowChrome`, `EnableWindowChrome`, `HandleChromeKey`, `WindowFrame`, `RenderEntryModal` | `overlay` | Title bar, drag, resize, keyboard chrome, and framing helpers. |
 | `OverlayStack`, `OverlayOnCloser`, `FocusTrap`, `DevStackDepthFooter` | `overlay` | v1 stack and helpers. |
 | `Stack`, `ViewAdapter`, `StringPipelineAdapter`, `ViewString` | `overlayv2` | v2 stack + R1 compositor. |
 
@@ -152,6 +155,7 @@ Before merging overlay geometry or merge behavior changes: exercise **resize**, 
 | `examples/spinner` | v1 | `OverlayView` + spinner |
 | `examples/colors` | v1 | Styled lines through the modal cut |
 | `examples/transparency` | v1 | Mask rune pass-through |
+| `examples/draggable` | v1 | `WindowChrome`, title-bar drag, ✕ close |
 | `examples/v2simple` | v2 | `overlayv2.Stack` + `CompositeView` |
 
 ```bash
@@ -161,6 +165,7 @@ go run examples/form/main.go
 go run examples/spinner/main.go
 go run examples/colors/main.go
 go run examples/transparency/main.go
+go run examples/draggable/main.go
 go run examples/stack/main.go
 OVERLAY_DEV=1 go run examples/stack/main.go
 go run examples/v2simple/main.go
@@ -170,9 +175,9 @@ go run examples/v2simple/main.go
 
 ## Gallery
 
-| Confirm | Form | Spinner | Colors | Nested stack | Transparency |
-| :---: | :---: | :---: | :---: | :---: | :---: |
-| ![Confirm](screenshots/confirm.gif) | ![Form](screenshots/form.gif) | ![Spinner](screenshots/spinner.gif) | ![Colors](screenshots/colors.gif) | ![Stack](screenshots/stack.gif) | ![Transparency](screenshots/transparency.gif) |
+| Confirm | Form | Spinner | Colors | Nested stack | Transparency | Draggable |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| ![Confirm](screenshots/confirm.gif) | ![Form](screenshots/form.gif) | ![Spinner](screenshots/spinner.gif) | ![Colors](screenshots/colors.gif) | ![Stack](screenshots/stack.gif) | ![Transparency](screenshots/transparency.gif) | ![Draggable](screenshots/draggable.gif) |
 
 ---
 

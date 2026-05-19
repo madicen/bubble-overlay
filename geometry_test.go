@@ -97,6 +97,20 @@ func TestOverlayViewInCenterInMain_matches_explicit_viewport(t *testing.T) {
 	}
 }
 
+func TestComputeChromeRegions_tab_close(t *testing.T) {
+	wc := EnableWindowChrome("Hello")
+	reg := ComputeChromeRegions(wc, 30, 5)
+	if reg.TabTop != 1 || reg.TabLeft != 0 {
+		t.Fatalf("tab offset: got top=%d left=%d", reg.TabTop, reg.TabLeft)
+	}
+	if reg.CloseW != CloseButtonWidth {
+		t.Fatalf("close width want %d got %d", CloseButtonWidth, reg.CloseW)
+	}
+	if reg.CloseX <= reg.TabLeft {
+		t.Fatalf("close should be inside tab, closeX=%d tabLeft=%d", reg.CloseX, reg.TabLeft)
+	}
+}
+
 func TestOverlayViewInCenter_clamped_placement_matches_CellInModal(t *testing.T) {
 	cases := []struct {
 		name       string

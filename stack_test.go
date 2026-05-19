@@ -196,6 +196,80 @@ func TestOverlayStack_View_nested(t *testing.T) {
 	}
 }
 
+func TestOverlayStack_chrome_close_pops(t *testing.T) {
+	var s OverlayStack
+	cfg := DefaultOverlayConfig()
+	cfg.WindowChrome = EnableWindowChrome("Close me")
+	cfg.DimOpacity = 0
+	s.Push(staticModel{view: "hello\nworld"}, cfg)
+	s.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
+	top, left, _, mh := s.topLayout(40, 20)
+	modal := RenderEntryModal(s.entries[len(s.entries)-1].model.(staticModel).view, cfg, &s.entries[len(s.entries)-1].layer)
+	reg := ComputeChromeRegions(cfg.WindowChrome, ModalBodyWidth(modal, cfg.WindowChrome), ModalBodyHeight(modal, cfg.WindowChrome))
+	s.Update(tea.MouseMsg{
+		X: left + reg.CloseX, Y: top + reg.CloseY, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft,
+	})
+	if s.Depth() != 0 {
+		t.Fatalf("close button should pop, depth=%d", s.Depth())
+	}
+	_ = mh
+}
+
+func TestOverlayStack_chrome_drag_moves_origin(t *testing.T) {
+	var s OverlayStack
+	cfg := DefaultOverlayConfig()
+	cfg.WindowChrome = EnableWindowChrome("Drag")
+	cfg.DimOpacity = 0
+	s.Push(staticModel{view: strings.Repeat("M", 16) + "\n" + strings.Repeat("M", 16)}, cfg)
+	s.Update(tea.WindowSizeMsg{Width: 50, Height: 20})
+	t0, l0, _, _ := s.topLayout(50, 20)
+	modal := RenderEntryModal(s.entries[len(s.entries)-1].model.(staticModel).view, cfg, &s.entries[len(s.entries)-1].layer)
+	reg := ComputeChromeRegions(cfg.WindowChrome, ModalBodyWidth(modal, cfg.WindowChrome), ModalBodyHeight(modal, cfg.WindowChrome))
+	s.Update(tea.MouseMsg{
+		X: l0 + reg.TabLeft + 1, Y: t0 + reg.TabTop + 1,
+		Action: tea.MouseActionPress, Button: tea.MouseButtonLeft,
+	})
+	s.Update(tea.MouseMsg{
+		X: l0 + 12, Y: t0 + 3, Action: tea.MouseActionMotion,
+	})
+	t1, l1, _, _ := s.topLayout(50, 20)
+	if t1 == t0 && l1 == l0 {
+		t.Fatalf("drag should move origin: before (%d,%d) after (%d,%d)", t0, l0, t1, l1)
+	}
+}
+
+func TestOverlayStack_view_syncs_viewport_for_mouse(t *testing.T) {
+	var s OverlayStack
+	cfg := DefaultOverlayConfig()
+	cfg.WindowChrome = EnableWindowChrome("T")
+	cfg.DimOpacity = 0
+	s.Push(staticModel{view: "hello\nworld"}, cfg)
+	// Compose at 60x20 without a prior WindowSizeMsg on the stack.
+	_ = s.View(strings.Repeat(".", 60)+"\n"+strings.Repeat(".", 19), 60, 20)
+	top, left, _, _ := s.topLayout(60, 20)
+	modal := RenderEntryModal(s.entries[len(s.entries)-1].model.(staticModel).view, cfg, &s.entries[len(s.entries)-1].layer)
+	reg := ComputeChromeRegions(cfg.WindowChrome, ModalBodyWidth(modal, cfg.WindowChrome), ModalBodyHeight(modal, cfg.WindowChrome))
+	s.Update(tea.MouseMsg{
+		X: left + reg.CloseX, Y: top + reg.CloseY, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft,
+	})
+	if s.Depth() != 0 {
+		t.Fatalf("close should pop after View synced viewport, depth=%d", s.Depth())
+	}
+}
+
+func TestOverlayStack_chrome_autowrap_in_view(t *testing.T) {
+	var s OverlayStack
+	cfg := DefaultOverlayConfig()
+	cfg.WindowChrome = EnableWindowChrome("T")
+	cfg.DimOpacity = 0
+	main := strings.Repeat(".", 30) + "\n" + strings.Repeat(".", 10)
+	s.Push(staticModel{view: "body\nline"}, cfg)
+	out := s.View(main, 30, 10)
+	if !strings.Contains(out, CloseButtonGlyph) {
+		t.Fatalf("auto-wrap should include close glyph in view")
+	}
+}
+
 func TestDevStackDepthFooter(t *testing.T) {
 	if DevStackDepthFooter(3, false) != "" {
 		t.Fatal("dev false should hide footer")
