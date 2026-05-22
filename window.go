@@ -69,9 +69,9 @@ type WindowChrome struct {
 	Enabled            bool
 	Title              string
 	ShowCloseButton    bool
-	ShowMinimizeButton bool   // render [-] / [+] toggle to the left of the close button
+	ShowMinimizeButton bool // render [-] / [+] toggle to the left of the close button
 	AutoWrap           bool
-	TitleBarHeight     int    // legacy; tab layout uses TabOffsetTop + tab rows when zero
+	TitleBarHeight     int // legacy; tab layout uses TabOffsetTop + tab rows when zero
 	Draggable          bool
 	TabBackground      string // lipgloss color for tab fill (default muted "238")
 	TabForeground      string // lipgloss color for tab text
@@ -541,7 +541,13 @@ func renderTabFrame(content string, cw, ch int, wc WindowChrome, minimized bool)
 		out = append(out, maskFill(modalW, mask))
 	}
 
-	tabTop := borderSt.Render("┌" + strings.Repeat("─", iw) + "┐")
+	// Use rounded corners for draggable windows (when resizable)
+	var tabTop string
+	if wc.resizable() {
+		tabTop = borderSt.Render("╭" + strings.Repeat("─", iw) + "╮")
+	} else {
+		tabTop = borderSt.Render("┌" + strings.Repeat("─", iw) + "┐")
+	}
 	tabRow := borderSt.Render("│") + tabSt.Render(inner) + borderSt.Render("│")
 	out = append(out, composeChromeLine(maskFill(ol, mask), tabTop, maskFill(max(0, modalW-ol-tabW), mask)))
 
@@ -551,7 +557,12 @@ func renderTabFrame(content string, cw, ch int, wc WindowChrome, minimized bool)
 		// skip both the tab-on-border body cap and the resizable body /
 		// bottom border — the whole point of minimize is "show no body".
 		out = append(out, composeChromeLine(maskFill(ol, mask), tabRow, maskFill(max(0, modalW-ol-tabW), mask)))
-		tabBot := borderSt.Render("└" + strings.Repeat("─", iw) + "┘")
+		var tabBot string
+		if wc.resizable() {
+			tabBot = borderSt.Render("╰" + strings.Repeat("─", iw) + "╯")
+		} else {
+			tabBot = borderSt.Render("└" + strings.Repeat("─", iw) + "┘")
+		}
 		out = append(out, composeChromeLine(maskFill(ol, mask), tabBot, maskFill(max(0, modalW-ol-tabW), mask)))
 		return strings.Join(out, "\n")
 	}
@@ -564,15 +575,25 @@ func renderTabFrame(content string, cw, ch int, wc WindowChrome, minimized bool)
 
 	if wc.resizable() {
 		lines := fitContentLines(content, cw, ch, wc.centerContent(), wc.contentPadTop())
+		var topBox string
 		if !wc.tabOnBorder() {
-			topBox := borderSt.Render("┌" + strings.Repeat("─", cw) + "┐")
+			if wc.resizable() {
+				topBox = borderSt.Render("╭" + strings.Repeat("─", cw) + "╮")
+			} else {
+				topBox = borderSt.Render("┌" + strings.Repeat("─", cw) + "┐")
+			}
 			out = append(out, padLineWithMask(topBox, modalW, mask))
 		}
 		for _, line := range lines {
 			row := borderSt.Render("│") + line + borderSt.Render("│")
 			out = append(out, padLineWithMask(row, modalW, mask))
 		}
-		bottomBox := borderSt.Render("└" + strings.Repeat("─", cw) + "┘")
+		var bottomBox string
+		if wc.resizable() {
+			bottomBox = borderSt.Render("╰" + strings.Repeat("─", cw) + "╯")
+		} else {
+			bottomBox = borderSt.Render("└" + strings.Repeat("─", cw) + "┘")
+		}
 		out = append(out, padLineWithMask(bottomBox, modalW, mask))
 	} else {
 		for _, line := range strings.Split(content, "\n") {
@@ -588,7 +609,7 @@ func renderTabOnBorderLine(ol, iw, cw int, inner string, tabSt, borderSt lipglos
 	boxW := cw + 2
 	var prefix string
 	if ol > 0 {
-		prefix = borderSt.Render("┌" + strings.Repeat("─", ol-1))
+		prefix = borderSt.Render("╭" + strings.Repeat("─", ol-1))
 	}
 	tabPart := borderSt.Render("├") + tabSt.Render(inner) + borderSt.Render("┴")
 	mid := prefix + tabPart
@@ -597,7 +618,7 @@ func renderTabOnBorderLine(ol, iw, cw int, inner string, tabSt, borderSt lipglos
 	if hlineLen < 0 {
 		hlineLen = 0
 	}
-	right := borderSt.Render(strings.Repeat("─", hlineLen) + "┐")
+	right := borderSt.Render(strings.Repeat("─", hlineLen) + "╮")
 	line := mid + right
 	return padLineWithMask(line, modalW, mask)
 }
