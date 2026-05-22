@@ -60,6 +60,7 @@ func TestHandleChromeMouse_close_pops(t *testing.T) {
 func TestHandleChromeMouse_drag_moves_origin(t *testing.T) {
 	cfg := DefaultOverlayConfig()
 	cfg.WindowChrome = EnableWindowChrome("Drag")
+	cfg.WindowChrome.Keyboard = true
 	modal := RenderEntryModal(strings.Repeat("M", 20)+"\n"+strings.Repeat("M", 20), cfg, nil)
 	mw, mh := ModalCellSize(modal)
 	top, left := 3, 4
@@ -311,6 +312,252 @@ func TestComposeModalLayer_uses_mask(t *testing.T) {
 	if !strings.Contains(lines[1], ".") {
 		t.Fatalf("mask padding should pass through main, line[1]=%q", lines[1])
 	}
+}
+
+func TestWindowFrame_roundedCorners(t *testing.T) {
+	content := lipglossBox(30, 5)
+
+	// Test resizable window with tabOnBorder (line 547)
+	t.Run("resizable tab top border", func(t *testing.T) {
+		opts := WindowFrameOpts{
+			ShowCloseButton: true,
+			TabBackground:   "238",
+			TabForeground:   "252",
+			TabBorder:       "63",
+			TabOffsetTop:    1,
+			TabOffsetLeft:   0,
+		}
+
+		// Create a resizable window config
+		cfg := DefaultOverlayConfig()
+		cfg.WindowChrome = EnableWindowChrome("Title")
+		cfg.WindowChrome.Resizable = true
+		cfg.WindowChrome.AutoWrap = true
+
+		got := WindowFrame(content, "Title", opts)
+		lines := strings.Split(got, "\n")
+
+		// Check that tab top border uses '╭' instead of '┌' for resizable windows
+		if !strings.Contains(lines[1], "╭") {
+			t.Fatalf("resizable window tab top should use '╭', got %q", lines[1])
+		}
+		if strings.Contains(lines[1], "┌") {
+			t.Fatalf("resizable window tab top should not use '┌', got %q", lines[1])
+		}
+	})
+
+	// Test resizable window with tabOnBorder (line 562)
+	t.Run("resizable tab bottom border", func(t *testing.T) {
+		opts := WindowFrameOpts{
+			ShowCloseButton: true,
+			TabBackground:   "238",
+			TabForeground:   "252",
+			TabBorder:       "63",
+			TabOffsetTop:    1,
+			TabOffsetLeft:   0,
+		}
+
+		// Create a resizable window config
+		cfg := DefaultOverlayConfig()
+		cfg.WindowChrome = EnableWindowChrome("Title")
+		cfg.WindowChrome.Resizable = true
+		cfg.WindowChrome.AutoWrap = true
+
+		got := WindowFrame(content, "Title", opts)
+		lines := strings.Split(got, "\n")
+
+		// Check that tab bottom border uses '╰' instead of '└' for resizable windows
+		if !strings.Contains(lines[3], "╰") {
+			t.Fatalf("resizable window tab bottom should use '╰', got %q", lines[3])
+		}
+		if strings.Contains(lines[3], "└") {
+			t.Fatalf("resizable window tab bottom should not use '└', got %q", lines[3])
+		}
+	})
+
+	// Test resizable window with tabOnBorder (line 580)
+	t.Run("resizable prefix in tab-on-border line rendering", func(t *testing.T) {
+		cfg := DefaultOverlayConfig()
+		cfg.WindowChrome = EnableWindowChrome("Title")
+		cfg.WindowChrome.Resizable = true
+		cfg.WindowChrome.AutoWrap = true
+
+		st := &LayerState{ContentWidth: 20, ContentHeight: 2, ContentSizeInitialized: true}
+		got := RenderEntryModal("a\nb", cfg, st)
+		lines := strings.Split(got, "\n")
+
+		// Check that prefix uses '╭' instead of '┌' for resizable windows in tab-on-border rendering
+		if !strings.Contains(lines[0], "╭") {
+			t.Fatalf("resizable window prefix should use '╭', got %q", lines[0])
+		}
+		if strings.Contains(lines[0], "┌") {
+			t.Fatalf("resizable window prefix should not use '┌', got %q", lines[0])
+		}
+	})
+
+	// Test resizable window with tabOnBorder (line 590)
+	t.Run("resizable bottom box in tab-on-border line rendering", func(t *testing.T) {
+		cfg := DefaultOverlayConfig()
+		cfg.WindowChrome = EnableWindowChrome("Title")
+		cfg.WindowChrome.Resizable = true
+		cfg.WindowChrome.AutoWrap = true
+
+		st := &LayerState{ContentWidth: 20, ContentHeight: 2, ContentSizeInitialized: true}
+		got := RenderEntryModal("a\nb", cfg, st)
+		lines := strings.Split(got, "\n")
+
+		// Check that bottom box uses '╰' instead of '└' for resizable windows in tab-on-border rendering
+		if !strings.Contains(lines[len(lines)-1], "╰") {
+			t.Fatalf("resizable window bottom box should use '╰', got %q", lines[len(lines)-1])
+		}
+		if strings.Contains(lines[len(lines)-1], "└") {
+			t.Fatalf("resizable window bottom box should not use '└', got %q", lines[len(lines)-1])
+		}
+	})
+
+	// Test non-resizable window (should use regular corners)
+	t.Run("non-resizable window uses regular corners", func(t *testing.T) {
+		opts := WindowFrameOpts{
+			ShowCloseButton: true,
+			TabBackground:   "238",
+			TabForeground:   "252",
+			TabBorder:       "63",
+			TabOffsetTop:    1,
+			TabOffsetLeft:   0,
+		}
+
+		// Create a non-resizable window config
+		cfg := DefaultOverlayConfig()
+		cfg.WindowChrome = EnableWindowChrome("Title")
+		cfg.WindowChrome.Resizable = false
+		cfg.WindowChrome.AutoWrap = true
+
+		got := WindowFrame(content, "Title", opts)
+		lines := strings.Split(got, "\n")
+
+		// Check that non-resizable window uses regular corners
+		if !strings.Contains(lines[1], "┌") {
+			t.Fatalf("non-resizable window tab top should use '┌', got %q", lines[1])
+		}
+		if strings.Contains(lines[1], "╭") {
+			t.Fatalf("non-resizable window tab top should not use '╭', got %q", lines[1])
+		}
+
+		if !strings.Contains(lines[3], "└") {
+			t.Fatalf("non-resizable window tab bottom should use '└', got %q", lines[3])
+		}
+		if strings.Contains(lines[3], "╰") {
+			t.Fatalf("non-resizable window tab bottom should not use '╰', got %q", lines[3])
+		}
+	})
+
+	// Test resizable window with ol > 0 (line 612)
+	t.Run("resizable window prefix with ol > 0", func(t *testing.T) {
+		cfg := DefaultOverlayConfig()
+		cfg.WindowChrome = EnableWindowChrome("Title")
+		cfg.WindowChrome.Resizable = true
+		cfg.WindowChrome.AutoWrap = true
+
+		st := &LayerState{ContentWidth: 20, ContentHeight: 2, ContentSizeInitialized: true}
+		got := RenderEntryModal("a\nb", cfg, st)
+		lines := strings.Split(got, "\n")
+
+		// Check that prefix uses '╭' when ol > 0 for resizable windows
+		if !strings.Contains(lines[0], "╭") {
+			t.Fatalf("resizable window prefix with ol > 0 should use '╭', got %q", lines[0])
+		}
+	})
+
+	// Test resizable window with hlineLen > 0 (line 621)
+	t.Run("resizable window right part with hlineLen > 0", func(t *testing.T) {
+		cfg := DefaultOverlayConfig()
+		cfg.WindowChrome = EnableWindowChrome("Title")
+		cfg.WindowChrome.Resizable = true
+		cfg.WindowChrome.AutoWrap = true
+
+		st := &LayerState{ContentWidth: 20, ContentHeight: 2, ContentSizeInitialized: true}
+		got := RenderEntryModal("a\nb", cfg, st)
+		lines := strings.Split(got, "\n")
+
+		// Check that right part uses '╮' when hlineLen > 0 for resizable windows
+		if !strings.Contains(lines[0], "╮") {
+			t.Fatalf("resizable window right part with hlineLen > 0 should use '╮', got %q", lines[0])
+		}
+	})
+
+	// Test resizable window with tabOnBorder (line 580) - more comprehensive
+	t.Run("resizable prefix in tab-on-border line rendering - comprehensive", func(t *testing.T) {
+		cfg := DefaultOverlayConfig()
+		cfg.WindowChrome = EnableWindowChrome("Title")
+		cfg.WindowChrome.Resizable = true
+		cfg.WindowChrome.AutoWrap = true
+
+		st := &LayerState{ContentWidth: 20, ContentHeight: 2, ContentSizeInitialized: true}
+		got := RenderEntryModal("a\nb", cfg, st)
+		lines := strings.Split(got, "\n")
+
+		// Check that prefix uses '╭' instead of '┌' for resizable windows in tab-on-border rendering
+		if !strings.Contains(lines[0], "╭") {
+			t.Fatalf("resizable window prefix should use '╭', got %q", lines[0])
+		}
+		if strings.Contains(lines[0], "┌") {
+			t.Fatalf("resizable window prefix should not use '┌', got %q", lines[0])
+		}
+	})
+
+	// Test non-resizable window with tabOnBorder (line 580) - for comparison
+	t.Run("non-resizable prefix in tab-on-border line rendering - comprehensive", func(t *testing.T) {
+		cfg := DefaultOverlayConfig()
+		cfg.WindowChrome = EnableWindowChrome("Title")
+		cfg.WindowChrome.Resizable = false
+		cfg.WindowChrome.AutoWrap = true
+
+		st := &LayerState{ContentWidth: 20, ContentHeight: 2, ContentSizeInitialized: true}
+		got := RenderEntryModal("a\nb", cfg, st)
+		lines := strings.Split(got, "\n")
+
+		// Check that prefix uses '┌' for non-resizable windows in tab-on-border rendering
+		if !strings.Contains(lines[0], "┌") {
+			t.Fatalf("non-resizable window prefix should use '┌', got %q", lines[0])
+		}
+		if strings.Contains(lines[0], "╭") {
+			t.Fatalf("non-resizable window prefix should not use '╭', got %q", lines[0])
+		}
+	})
+
+	// Test resizable window with ol > 0 (line 612) - more comprehensive
+	t.Run("resizable window prefix with ol > 0 - comprehensive", func(t *testing.T) {
+		cfg := DefaultOverlayConfig()
+		cfg.WindowChrome = EnableWindowChrome("Title")
+		cfg.WindowChrome.Resizable = true
+		cfg.WindowChrome.AutoWrap = true
+
+		st := &LayerState{ContentWidth: 20, ContentHeight: 2, ContentSizeInitialized: true}
+		got := RenderEntryModal("a\nb", cfg, st)
+		lines := strings.Split(got, "\n")
+
+		// Check that prefix uses '╭' when ol > 0 for resizable windows
+		if !strings.Contains(lines[0], "╭") {
+			t.Fatalf("resizable window prefix with ol > 0 should use '╭', got %q", lines[0])
+		}
+	})
+
+	// Test resizable window with hlineLen > 0 (line 621) - more comprehensive
+	t.Run("resizable window right part with hlineLen > 0 - comprehensive", func(t *testing.T) {
+		cfg := DefaultOverlayConfig()
+		cfg.WindowChrome = EnableWindowChrome("Title")
+		cfg.WindowChrome.Resizable = true
+		cfg.WindowChrome.AutoWrap = true
+
+		st := &LayerState{ContentWidth: 20, ContentHeight: 2, ContentSizeInitialized: true}
+		got := RenderEntryModal("a\nb", cfg, st)
+		lines := strings.Split(got, "\n")
+
+		// Check that right part uses '╮' when hlineLen > 0 for resizable windows
+		if !strings.Contains(lines[0], "╮") {
+			t.Fatalf("resizable window right part with hlineLen > 0 should use '╮', got %q", lines[0])
+		}
+	})
 }
 
 func lipglossBox(w, h int) string {
