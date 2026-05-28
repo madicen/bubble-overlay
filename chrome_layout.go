@@ -1,6 +1,8 @@
 package overlay
 
 import (
+	"time"
+
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -132,7 +134,24 @@ func handleChromePointerCore(wc WindowChrome, st *LayerState, action ChromePoint
 		if wc.showClose() && cellInRect(rx, ry, reg.CloseX, reg.CloseY, reg.CloseW, reg.CloseH) {
 			return ChromeMouseResult{Consumed: true, Pop: true}
 		}
-		if wc.resizable() {
+		// Mirror HandleChromePointer (window.go): the [-] / [+] toggle must
+		// be checked here too, otherwise the press falls through to the
+		// drag-tab branch (cellInTabDrag intentionally covers the same
+		// columns) and silently starts a drag instead of minimizing.
+		if wc.showMinimize() && cellInRect(rx, ry, reg.MinimizeX, reg.MinimizeY, reg.MinimizeW, reg.MinimizeH) {
+			st.Minimized = !st.Minimized
+			// Cancel any partially-initiated drag / resize so the body's
+			// disappearance can't leave us in a "dragging an invisible
+			// modal" state on the next motion event.
+			st.Dragging = false
+			st.Resizing = false
+			st.ResizeEdge = ResizeNone
+			return ChromeMouseResult{Consumed: true, MinimizeToggled: true}
+		}
+		// Resize handles only paint while expanded; suppressing the hit
+		// region here keeps a minimized window from "growing" via a
+		// click on cells where the (now invisible) edges used to live.
+		if wc.resizable() && !st.Minimized {
 			if cellInRect(rx, ry, reg.ResizeCornerX, reg.ResizeCornerY, reg.ResizeCornerW, reg.ResizeCornerH) {
 				st.Resizing = true
 				st.ResizeEdge = ResizeCorner
@@ -156,6 +175,23 @@ func handleChromePointerCore(wc WindowChrome, st *LayerState, action ChromePoint
 			}
 		}
 		if wc.draggable() && cellInTabDrag(rx, ry, reg) {
+			// Double-click on the tab toggles minimize, mirroring the
+			// desktop OS gesture. We only honour it when the minimize
+			// affordance is enabled — otherwise users have no visible
+			// hint that this gesture exists, and it'd be a surprise.
+			now := time.Now()
+			if wc.showMinimize() && !st.LastTabPressAt.IsZero() && now.Sub(st.LastTabPressAt) <= DoubleClickThreshold {
+				st.Minimized = !st.Minimized
+				st.Dragging = false
+				st.Resizing = false
+				st.ResizeEdge = ResizeNone
+				// Clear the press tracker so a third quick click doesn't
+				// immediately re-toggle (double-click is a discrete
+				// event, not a repeating one).
+				st.LastTabPressAt = time.Time{}
+				return ChromeMouseResult{Consumed: true, MinimizeToggled: true}
+			}
+			st.LastTabPressAt = now
 			st.Dragging = true
 			st.DragOffsetX = rx
 			st.DragOffsetY = ry
